@@ -46,11 +46,7 @@ impl SgfParser {
             input: input.chars().collect(),
             pos: 0,
             board_size: 19, // SGF 默认
-            record: GoGameRecord {
-                info: GameInfo::default(),
-                tree: GameTree::new(NodeProperties::default()),
-                current_path: vec![0],
-            },
+            record: GoGameRecord::default(),
         }
     }
 
@@ -65,7 +61,7 @@ impl SgfParser {
         Ok(self.record)
     }
 
-    // ================= 核心递归下降 =================
+    // 核心递归下降
 
     fn parse_collection(&mut self) -> Result<(), SgfError> {
         self.expect_char('(')?;
@@ -99,31 +95,44 @@ impl SgfParser {
 
                     // 创建新节点
                     let (move_data, node_props) = self.apply_props(&props, is_root)?;
+
                     if is_root {
-                        self.record.tree.nodes[0].props = node_props;
+                        self.merge_root_props(&node_props);
+                        self.record.tree.nodes[0].move_data = move_data;
                     } else {
                         let new_idx = self
                             .record
                             .tree
                             .add_child(parent_idx, move_data, node_props);
                         parent_idx = new_idx;
+                        // 同步 current_path（仅主线）
+                        if self.record.current_path.last() == Some(&parent_idx) {
+                            // 已在路径中，无需操作
+                        } else {
+                            self.record.current_path.push(new_idx);
+                        }
                     }
                 }
                 '(' => {
+                    // 分支解析时保存
+                    let path_snapshot = self.record.current_path.clone();
+                    let parent_snapshot = parent_idx;
+
                     self.pos += 1;
                     self.parse_game_tree()?;
                     self.expect_char(')')?;
-                    // 分支结束后，回到当前序列的父节点继续解析
-                    parent_idx = self.record.current_path.last().copied().unwrap_or(0);
+                    // 恢复状态到分支起点
+                    self.record.current_path = path_snapshot;
+                    parent_idx = parent_snapshot;
                 }
-                ')' | ';' => break,
+                ')' => break,
                 _ => return Err(SgfError::InvalidChar(self.input[self.pos], self.pos)),
             }
         }
         Ok(())
     }
 
-    // ================= 属性解析 =================
+    // 属性解析
 
     fn parse_properties(&mut self) -> Result<Vec<(String, Vec<String>)>, SgfError> {
         let mut props = Vec::new();
@@ -210,13 +219,13 @@ impl SgfParser {
         out
     }
 
-    // ================= 属性映射到数据模型 =================
+    // 属性映射到数据模型
 
     fn apply_props(
         &mut self,
         props: &[(String, Vec<String>)],
         is_root: bool,
-    ) -> Result<(Move, NodeProperties), SgfError> {
+    ) -> Result<(Option<Move>, NodeProperties), SgfError> {
         let mut node_props = NodeProperties::default();
         let mut move_data = None;
         let mut raw_props = HashMap::new();
@@ -312,31 +321,29 @@ impl SgfParser {
             }
         }
         node_props.raw_sgf_props = raw_props;
-        Ok((
-            move_data.unwrap_or(Move {
-                color: Color::Black,
-                point: None,
-            }),
-            node_props,
-        ))
+        Ok((move_data, node_props))
+    }
+
+    /// 合并根节点属性而非覆盖
+    fn merge_root_props(&mut self, new_props: &NodeProperties) {
+        let root = self.record.tree.get_mut(0).unwrap();
+        if !new_props.comment.is_empty() {
+            root.props.comment.clone_from(&new_props.comment);
+        }
+        root.props.labels.extend(new_props.labels.clone());
+        root.props.setup.extend(new_props.setup.clone());
+        root.props.annotations.extend(new_props.annotations.clone());
+        root.props
+            .raw_sgf_props
+            .extend(new_props.raw_sgf_props.clone());
     }
 
     fn parse_sgf_point(&self, s: &str) -> Result<Point, SgfError> {
-        if s.len() != 2 {
-            return Err(SgfError::InvalidCoord(s.to_string(), self.pos));
-        }
-        let b = s.as_bytes();
-        let x = Point::from_sgf(b[0] as char)
-            .ok_or_else(|| SgfError::InvalidCoord(s.to_string(), self.pos))?;
-        let y = Point::from_sgf(b[1] as char)
-            .ok_or_else(|| SgfError::InvalidCoord(s.to_string(), self.pos))?;
-        if x >= self.board_size || y >= self.board_size {
-            return Err(SgfError::InvalidCoord(s.to_string(), self.pos));
-        }
-        Ok(Point { x, y })
+        Point::from_sgf(s, self.board_size)
+            .ok_or_else(|| SgfError::InvalidCoord(s.to_string(), self.pos))
     }
 
-    // ================= 辅助方法 =================
+    // 辅助方法
 
     fn skip_whitespace(&mut self) {
         while self.pos < self.input.len() && self.input[self.pos].is_whitespace() {
@@ -356,6 +363,8 @@ impl SgfParser {
         }
     }
 }
+
+// 验证/导出逻辑
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SgfValidationError {
@@ -492,7 +501,7 @@ fn validate_tree(
 ) {
     let node = &record.tree.nodes[idx];
 
-    // ① 处理摆子/让子 (AB/AW) - 不改变回合顺序
+    // 1.处理摆子/让子 (AB/AW) - 不改变回合顺序
     for &(pt, color) in &node.props.setup {
         if pt.x >= record.info.board_size || pt.y >= record.info.board_size {
             res.errors.push(SgfValidationError::CoordinateOutOfBounds(
@@ -509,7 +518,7 @@ fn validate_tree(
         }
     }
 
-    // ② 处理着手 (B/W)
+    // 2.处理着手 (B/W)
     if let Some(mv) = &node.move_data {
         // 校验回合顺序
         if mv.color != board.next_turn {
@@ -548,18 +557,14 @@ fn validate_tree(
         }
 
         // 切换回合
-        board.next_turn = if mv.color == Color::Black {
-            Color::White
-        } else {
-            Color::Black
-        };
+        board.next_turn = mv.color.opposite();
         board.last_was_pass = mv.point.is_none();
     } else if !is_root {
         // 非根节点无着手数据 (通常是纯注释/摆子节点)
         board.last_was_pass = false;
     }
 
-    // ③ 递归处理子节点 (分支独立状态)
+    // 3.递归处理子节点 (分支独立状态)
     if !node.children.is_empty() {
         for &child_idx in &node.children {
             let mut child_board = board.clone(); // 19x19 Vec 克隆 < 1μs
@@ -731,4 +736,27 @@ fn escape_sgf(s: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_branching_path_recovery() {
+        let sgf = "(;FF[4]SZ[9];B[aa];W[bb](;B[cc])(;B[dd]))";
+        let record = SgfParser::new(sgf).parse().unwrap();
+        let w_bb_idx = record.tree.root_index + 2;
+        assert_eq!(record.tree.get(w_bb_idx).unwrap().children.len(), 2);
+    }
+
+    #[test]
+    fn test_sgf_roundtrip() {
+        let original = "(;FF[4]SZ[19]KM[6.5];B[pd];W[dd]C[好棋])";
+        let record = SgfParser::new(original).parse().unwrap();
+        let exported = record.to_sgf();
+        let record2 = SgfParser::new(&exported).parse().unwrap();
+        assert_eq!(record.info.komi, record2.info.komi);
+        assert_eq!(record.tree.nodes.len(), record2.tree.nodes.len());
+    }
 }
