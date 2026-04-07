@@ -357,6 +357,217 @@ impl SgfParser {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum SgfValidationError {
+    // 阻断性错误 (棋谱无法对弈或渲染)
+    InvalidBoardSize(u8),
+    CoordinateOutOfBounds(Point, u8),
+    PointAlreadyOccupied(Point),
+    TurnOrderViolation {
+        expected: Color,
+        actual: Color,
+        node_idx: usize,
+    },
+    HandicapFirstMoveMustBeWhite(usize),
+    DoublePassWithoutResult(usize),
+    // 警告 (不阻断运行，但建议修复)
+    Warning(String, usize),
+}
+
+impl fmt::Display for SgfValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SgfValidationError::InvalidBoardSize(s) => write!(f, "Invalid board size: {}", s),
+            SgfValidationError::CoordinateOutOfBounds(p, s) => {
+                write!(f, "Coordinate {:?} out of bounds for {}x{}", p, s, s)
+            }
+            SgfValidationError::PointAlreadyOccupied(p) => {
+                write!(f, "Point {:?} is already occupied", p)
+            }
+            SgfValidationError::TurnOrderViolation {
+                expected,
+                actual,
+                node_idx,
+            } => {
+                write!(
+                    f,
+                    "Turn mismatch at node {}: expected {}, got {}",
+                    node_idx, expected, actual
+                )
+            }
+            SgfValidationError::HandicapFirstMoveMustBeWhite(idx) => {
+                write!(
+                    f,
+                    "Handicap game: first move should be White at node {}",
+                    idx
+                )
+            }
+            SgfValidationError::DoublePassWithoutResult(idx) => {
+                write!(
+                    f,
+                    "Consecutive passes without result marker at node {}",
+                    idx
+                )
+            }
+            SgfValidationError::Warning(msg, idx) => write!(f, "Warning at node {}: {}", idx, msg),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct ValidationResult {
+    pub errors: Vec<SgfValidationError>,
+    pub warnings: Vec<SgfValidationError>,
+}
+
+impl ValidationResult {
+    pub fn is_valid(&self) -> bool {
+        self.errors.is_empty()
+    }
+}
+
+/// 轻量级虚拟棋盘 (仅用于校验，不计算气/提子)
+#[derive(Clone)]
+struct ValidationBoard {
+    grid: Vec<Option<Color>>,
+    size: u8,
+    next_turn: Color,
+    last_was_pass: bool,
+}
+
+impl ValidationBoard {
+    fn new(size: u8, handicap: u8) -> Self {
+        Self {
+            grid: vec![None; (size * size) as usize],
+            size,
+            next_turn: if handicap > 1 {
+                Color::White
+            } else {
+                Color::Black
+            },
+            last_was_pass: false,
+        }
+    }
+    fn idx(&self, p: Point) -> usize {
+        (p.y * self.size + p.x) as usize
+    }
+    fn is_empty(&self, p: &Point) -> bool {
+        p.x < self.size && p.y < self.size && self.grid[self.idx(*p)].is_none()
+    }
+    fn place(&mut self, p: &Point, c: Color) {
+        let idx = self.idx(*p);
+        self.grid[idx] = Some(c);
+    }
+}
+
+/// 公开校验入口
+pub fn validate_sgf(record: &GoGameRecord) -> ValidationResult {
+    let mut res = ValidationResult::default();
+
+    // 1. 基础元数据校验
+    if record.info.board_size < 2 || record.info.board_size > 26 {
+        res.errors
+            .push(SgfValidationError::InvalidBoardSize(record.info.board_size));
+        return res;
+    }
+    if ![9, 13, 19].contains(&record.info.board_size) {
+        res.warnings.push(SgfValidationError::Warning(
+            "非标准棋盘尺寸 (推荐 9/13/19)".into(),
+            0,
+        ));
+    }
+
+    // 2. 递归校验整棵树
+    let mut board = ValidationBoard::new(record.info.board_size, record.info.handicap);
+    validate_tree(record, record.tree.root_index, &mut board, true, &mut res);
+    res
+}
+
+fn validate_tree(
+    record: &GoGameRecord,
+    idx: usize,
+    board: &mut ValidationBoard,
+    is_root: bool,
+    res: &mut ValidationResult,
+) {
+    let node = &record.tree.nodes[idx];
+
+    // ① 处理摆子/让子 (AB/AW) - 不改变回合顺序
+    for &(pt, color) in &node.props.setup {
+        if pt.x >= record.info.board_size || pt.y >= record.info.board_size {
+            res.errors.push(SgfValidationError::CoordinateOutOfBounds(
+                pt,
+                record.info.board_size,
+            ));
+        } else if !board.is_empty(&pt) {
+            res.warnings.push(SgfValidationError::Warning(
+                format!("覆盖交叉点 {:?}", pt),
+                idx,
+            ));
+        } else {
+            board.place(&pt, color);
+        }
+    }
+
+    // ② 处理着手 (B/W)
+    if let Some(mv) = &node.move_data {
+        // 校验回合顺序
+        if mv.color != board.next_turn {
+            if is_root && record.info.handicap > 1 {
+                res.errors
+                    .push(SgfValidationError::HandicapFirstMoveMustBeWhite(idx));
+            } else {
+                res.errors.push(SgfValidationError::TurnOrderViolation {
+                    expected: board.next_turn,
+                    actual: mv.color,
+                    node_idx: idx,
+                });
+            }
+        }
+
+        // 校验坐标与占位
+        if let Some(pt) = mv.point {
+            if pt.x >= record.info.board_size || pt.y >= record.info.board_size {
+                res.errors.push(SgfValidationError::CoordinateOutOfBounds(
+                    pt,
+                    record.info.board_size,
+                ));
+            } else if !board.is_empty(&pt) {
+                res.errors
+                    .push(SgfValidationError::PointAlreadyOccupied(pt));
+            } else {
+                board.place(&pt, mv.color);
+            }
+        } else {
+            // Pass 处理
+            if board.last_was_pass && record.info.result.is_empty() {
+                res.errors
+                    .push(SgfValidationError::DoublePassWithoutResult(idx));
+            }
+            board.last_was_pass = true;
+        }
+
+        // 切换回合
+        board.next_turn = if mv.color == Color::Black {
+            Color::White
+        } else {
+            Color::Black
+        };
+        board.last_was_pass = mv.point.is_none();
+    } else if !is_root {
+        // 非根节点无着手数据 (通常是纯注释/摆子节点)
+        board.last_was_pass = false;
+    }
+
+    // ③ 递归处理子节点 (分支独立状态)
+    if !node.children.is_empty() {
+        for &child_idx in &node.children {
+            let mut child_board = board.clone(); // 19x19 Vec 克隆 < 1μs
+            validate_tree(record, child_idx, &mut child_board, false, res);
+        }
+    }
+}
+
 impl GoGameRecord {
     /// 导出为 SGF 字符串
     pub fn to_sgf(&self) -> String {
