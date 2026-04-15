@@ -1,6 +1,8 @@
-use crate::model::*;
 use std::collections::HashMap;
 use std::fmt::{self, Write};
+
+use crate::game::record::{GameRecord, NodeProperties};
+use crate::model::{Color, Move, Point};
 
 #[derive(Debug)]
 pub enum SgfError {
@@ -37,7 +39,7 @@ pub struct SgfParser {
     input: Vec<char>,
     pos: usize,
     board_size: u8,
-    record: GoGameRecord,
+    record: GameRecord,
 }
 
 impl SgfParser {
@@ -46,12 +48,12 @@ impl SgfParser {
             input: input.chars().collect(),
             pos: 0,
             board_size: 19, // SGF 默认
-            record: GoGameRecord::default(),
+            record: GameRecord::default(),
         }
     }
 
     /// 公开入口：解析完整 SGF 字符串
-    pub fn parse(mut self) -> Result<GoGameRecord, SgfError> {
+    pub fn parse(mut self) -> Result<GameRecord, SgfError> {
         self.skip_whitespace();
         self.parse_collection()?;
         self.skip_whitespace();
@@ -470,7 +472,7 @@ impl ValidationBoard {
 }
 
 /// 公开校验入口
-pub fn validate_sgf(record: &GoGameRecord) -> ValidationResult {
+pub fn validate_sgf(record: &GameRecord) -> ValidationResult {
     let mut res = ValidationResult::default();
 
     // 1. 基础元数据校验
@@ -493,7 +495,7 @@ pub fn validate_sgf(record: &GoGameRecord) -> ValidationResult {
 }
 
 fn validate_tree(
-    record: &GoGameRecord,
+    record: &GameRecord,
     idx: usize,
     board: &mut ValidationBoard,
     is_root: bool,
@@ -573,7 +575,52 @@ fn validate_tree(
     }
 }
 
-impl GoGameRecord {
+impl Point {
+    /// SGF 单字符坐标转换 (a-t 跳过 i) -> 0-based 数值
+    /// 例如: 'a'→0, 'h'→7, 'j'→8, 's'→18
+    pub fn from_sgf_coord_char(c: char) -> Option<u8> {
+        match c {
+            //0..=7
+            'a'..='h' => Some(c as u8 - b'a'),
+            //8..=18
+            'j'..='z' => Some(c as u8 - b'j' + 8), //跳过i
+            _ => None,
+        }
+    }
+
+    /// SGF 双字符坐标解析 (如 "pd") → Point
+    pub fn from_sgf(s: &str, board_size: u8) -> Option<Self> {
+        let mut chars = s.chars();
+        let x = Self::from_sgf_coord_char(chars.next()?)?;
+        let y = Self::from_sgf_coord_char(chars.next()?)?;
+        if chars.next().is_some() {
+            return None;
+        } // 多余字符
+        let pt = Self { x, y };
+        if pt.is_valid(board_size) {
+            Some(pt)
+        } else {
+            None
+        }
+    }
+
+    /// Point → SGF 双字符坐标 (如 "pd")
+    pub fn to_sgf(&self) -> String {
+        let x = match self.x {
+            0..=7 => (b'a' + self.x) as char,
+            8..=18 => (b'j' + self.x - 8) as char,
+            _ => '?',
+        };
+        let y = match self.y {
+            0..=7 => (b'a' + self.y) as char,
+            8..=18 => (b'j' + self.y - 8) as char,
+            _ => '?',
+        };
+        format!("{}{}", x, y)
+    }
+}
+
+impl GameRecord {
     /// 导出为 SGF 字符串
     pub fn to_sgf(&self) -> String {
         let mut out = String::new();
@@ -740,7 +787,36 @@ fn escape_sgf(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use crate::game::record::GameTree;
+
     use super::*;
+
+    #[test]
+    fn test_sgf_coord_roundtrip() {
+        for c in "abcdefghjklmnopqrst".chars() {
+            if let Some(val) = Point::from_sgf_coord_char(c) {
+                let pt = Point { x: val, y: 0 };
+                let result = pt.to_sgf();
+                assert_eq!(result.chars().next(), Some(c));
+            }
+        }
+    }
+
+    #[test]
+    fn test_gametree_default_safe() {
+        let tree = GameTree::default();
+        assert!(!tree.nodes.is_empty());
+        assert_eq!(tree.root_index, 0);
+    }
+
+    #[test]
+    fn test_point_validation() {
+        assert!(Point::new(0, 0, 19).is_some());
+        assert!(Point::new(18, 18, 19).is_some());
+        assert!(Point::new(19, 0, 19).is_none());
+        assert!(Point::from_sgf("tt", 19).is_some());
+        assert!(Point::from_sgf("uu", 19).is_none()); // t=18, u=19, 19x19 棋盘最大索引 18
+    }
 
     #[test]
     fn test_parse_branching_path_recovery() {

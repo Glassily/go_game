@@ -1,2 +1,5 @@
 pub mod model;
-pub mod sgf;
+pub mod rule;
+pub mod game;
+
+pub mod tui;
