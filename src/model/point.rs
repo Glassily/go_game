@@ -3,7 +3,9 @@ use std::fmt::Display;
 /// 棋盘坐标 (0-based)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Point {
+    /// 横坐标 (0-based)
     pub x: u8,
+    /// 纵坐标 (0-based)
     pub y: u8,
 }
 

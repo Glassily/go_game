@@ -5,7 +5,9 @@ use crate::model::Point;
 /// 棋子颜色
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Color {
+    /// 黑子●
     Black,
+    /// 白子○
     White,
 }
 

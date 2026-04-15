@@ -407,11 +407,14 @@ mod tests {
         board.set(Point { x: 1, y: 2 }, Color::Black);
         board.set(Point { x: 3, y: 2 }, Color::Black);
         board.set(Point { x: 2, y: 1 }, Color::Black);
+    
+        // println!("{}", board.to_string_with_moves(None));
 
         // 最后一步提子
         let mv = Move::new(Color::Black, Point { x: 2, y: 3 }, 5).unwrap();
-        let (captured, _) = board.apply_move(&mv, None, false).unwrap();
 
+        let (captured, _) = board.apply_move(&mv, None, false).unwrap();
+        // println!("{}", board.to_string_with_moves(None));
         assert_eq!(captured.len(), 1);
         assert_eq!(captured[0], Point { x: 2, y: 2 });
         assert_eq!(board.get(Point { x: 2, y: 2 }), None);
@@ -423,7 +426,7 @@ mod tests {
         // 白子包围一角
         board.set(Point { x: 0, y: 1 }, Color::White);
         board.set(Point { x: 1, y: 0 }, Color::White);
-
+        // println!("{}", board.to_string_with_moves(None));
         // 黑子试图自杀（不允许自杀规则下）
         let mv = Move::new(Color::Black, Point { x: 0, y: 0 }, 3).unwrap();
         assert!(!board.is_legal(&mv, None, false));
@@ -443,11 +446,13 @@ mod tests {
         board.set(Point { x: 3, y: 3 }, Color::White);
         board.set(Point { x: 2, y: 4 }, Color::White);
 
+        println!("{}", board.to_string_with_moves(None));
         // 白提黑一子
         let mv_white = Move::new(Color::White, Point { x: 2, y: 1 }, 5).unwrap();
         let (_, ko_point) = board.apply_move(&mv_white, None, false).unwrap();
+        
         assert_eq!(ko_point, Some(Point { x: 2, y: 2 }));
-
+        println!("{}", board.to_string_with_moves(None));
         // 黑不能立即回提（劫）
         let mv_black = Move::new(Color::Black, Point { x: 2, y: 2 }, 5).unwrap();
         assert!(!board.is_legal(&mv_black, ko_point, false));
@@ -473,5 +478,42 @@ mod tests {
         let group = board.get_group(pt);
         assert_eq!(group.len(), 2);
         assert_eq!(board.count_liberties(&group), 6); // 2*4 - 2(共享边) = 6
+    }
+
+    // 测试劫的特殊情况
+    #[test]
+    fn test_ko_scenario() {
+        let mut board = Board::new(5);
+        // 创建一个简单的劫
+        board.set(Point { x: 1, y: 0 }, Color::Black);
+        board.set(Point { x: 0, y: 1 }, Color::Black);
+        board.set(Point { x: 1, y: 2 }, Color::Black);
+        board.set(Point { x: 2, y: 1 }, Color::Black);
+        board.set(Point { x: 2, y: 0 }, Color::White);
+        board.set(Point { x: 2, y: 2 }, Color::White);
+        board.set(Point { x: 3, y: 1 }, Color::White);
+        println!("{}", board.to_string_with_moves(None));
+        // 白提黑一子
+        let mv_white = Move::new(Color::White, Point { x: 1, y: 1 }, 5).unwrap();
+        let (_, ko_point) = board.apply_move(&mv_white, None, false).unwrap();
+        println!("{}", board.to_string_with_moves(None));
+        assert_eq!(ko_point, Some(Point { x: 2, y: 1 }));
+
+        // 黑不能立即回提（劫）
+        let mv_black = Move::new(Color::Black, Point { x: 3, y: 2 }, 5).unwrap();
+        // assert!(!board.is_legal(&mv_black, ko_point, false));
+        board.apply_move(&mv_black, ko_point, false);
+        println!("{}", board.to_string_with_moves(None));
+
+        // 黑先走其他位置,白应一手棋
+        let mv_black_other = Move::new(Color::Black, Point { x: 0, y: 0 }, 5).unwrap();
+        let mv_white_other = Move::new(Color::White, Point { x: 3, y: 0 }, 5).unwrap();
+        assert!(board.is_legal(&mv_black_other, ko_point, false));
+        board.apply_move(&mv_black_other, ko_point, false);
+        assert!(board.is_legal(&mv_white_other, ko_point, false));
+
+        // 现在黑可以回提了
+        assert!(board.is_legal(&mv_black, None, false));
+
     }
 }
