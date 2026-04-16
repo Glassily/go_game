@@ -1,7 +1,5 @@
 use crate::{
-    game::record::{GameHistory, ZobristHash},
-    model::*,
-    rule::legality::KoRule,
+    game::zobrist::{GameHistory, ZobristHash}, model::*, rule::legality::KoRule
 };
 
 

@@ -1,6 +1,8 @@
 pub mod ko;
 pub mod record;
+pub mod sgf;
 pub mod state;
+pub mod zobrist;
 
 use crate::game::{record::GameRecord, state::GameState};
 
