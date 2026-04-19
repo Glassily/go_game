@@ -1,6 +1,6 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, usize};
 
-use crate::model::{Board, Color, Move, Point};
+use crate::model::{Color, Move, Point};
 
 /// 节点属性 (对应 SGF 的 C, LB, AB, AW, 自定义属性等)
 #[derive(Debug, Clone, Default)]
@@ -14,10 +14,10 @@ pub struct NodeProperties {
     /// 自定义注解
     pub annotations: Vec<String>,
     /// 保留原始 SGF 属性防丢失（保证无损往返）
-    pub raw_sgf_props: HashMap<String, Vec<String>>,
+    pub raw_sgf_props: Vec<(String, Vec<String>)>,
 }
 
-/// 树节点 (索引化设计，无循环引用与借用问题)
+/// 树节点
 #[derive(Debug, Clone)]
 pub struct TreeNode {
     pub parent_index: Option<usize>,
@@ -47,21 +47,26 @@ impl GameTree {
         }
     }
 
-    pub fn get(&self, idx: usize) -> Option<&TreeNode> {
+    /// 获取节点引用
+    pub fn node(&self, idx: usize) -> Option<&TreeNode> {
         self.nodes.get(idx)
     }
 
-    pub fn get_mut(&mut self, idx: usize) -> Option<&mut TreeNode> {
+    /// 获取节点可变引用
+    pub fn node_mut(&mut self, idx: usize) -> Option<&mut TreeNode> {
         self.nodes.get_mut(idx)
     }
 
     /// 添加子节点（变招）
-    pub fn add_child(
+    pub fn add_child_node(
         &mut self,
         parent_idx: usize,
         move_data: Option<Move>,
         props: NodeProperties,
-    ) -> usize {
+    ) -> Option<usize> {
+        if parent_idx >= self.nodes.len() {
+            return None;
+        }
         //创建子节点索引，按加入nodes的顺序创建
         let new_idx = self.nodes.len();
         let child = TreeNode {
@@ -74,33 +79,33 @@ impl GameTree {
         self.nodes.push(child);
         //在父节点添加子节点索引
         self.nodes[parent_idx].children.push(new_idx);
-        new_idx
+        Some(new_idx)
     }
 
-    /// 获取指定节点的子节点迭代器
-    pub fn children(&self, idx: usize) -> impl Iterator<Item = &TreeNode> + '_ {
+    /// 获取指定节点的子节点迭代器（同时给出索引）
+    pub fn get_children(&self, idx: usize) -> impl Iterator<Item = (usize, &TreeNode)> + '_ {
         self.nodes[idx]
             .children
             .iter()
-            .filter_map(|&child_idx| self.get(child_idx))
+            .filter_map(|&child_idx| self.node(child_idx).map(|node| (child_idx, node)))
     }
 
     /// 获取指定节点的父节点
-    pub fn parent(&self, idx: usize) -> Option<&TreeNode> {
+    pub fn get_parent(&self, idx: usize) -> Option<&TreeNode> {
         self.nodes[idx]
             .parent_index
-            .and_then(|parent_idx| self.get(parent_idx))
+            .and_then(|parent_idx| self.node(parent_idx))
     }
 
     /// 获取指定节点的兄弟节点（同父节点的其他子节点）
-    pub fn siblings(&self, idx: usize) -> Vec<&TreeNode> {
+    pub fn get_siblings(&self, idx: usize) -> Vec<&TreeNode> {
         if let Some(parent_idx) = self.nodes[idx].parent_index {
             self.nodes[parent_idx]
                 .children
                 .iter()
                 .filter_map(|&sibling_idx| {
                     if sibling_idx != idx {
-                        self.get(sibling_idx)
+                        self.node(sibling_idx)
                     } else {
                         None
                     }
@@ -121,6 +126,24 @@ impl GameTree {
         }
         path.reverse();
         path
+    }
+
+    /// 获取指定节点的棋盘状态
+    pub fn board_state(&self, idx: usize) -> Vec<(Point, Color)> {
+        let mut board = Vec::new();
+        for node_idx in self.path_to_root(idx) {
+            if let Some(node) = self.node(node_idx) {
+                if let Some(Move { point, color }) = &node.move_data {
+                    if let Some(p) = point {
+                        board.push((*p, *color));
+                    }
+                }
+                for (pt, color) in &node.props.setup {
+                    board.push((*pt, *color));
+                }
+            }
+        }
+        board
     }
 }
 
@@ -185,29 +208,40 @@ impl GameRecord {
 
     /// 获取当前节点（根据 current_path 的最后一个索引）
     pub fn current_node(&self) -> Option<&TreeNode> {
-        self.current_path.last().and_then(|&idx| self.tree.get(idx))
+        self.current_path
+            .last()
+            .and_then(|&idx| self.tree.node(idx))
     }
 
     /// 获取当前节点的可变引用
     pub fn current_node_mut(&mut self) -> Option<&mut TreeNode> {
         self.current_path
             .last()
-            .and_then(|&idx| self.tree.get_mut(idx))
+            .and_then(|&idx| self.tree.node_mut(idx))
     }
 
-    /// 获取当前节点的所有子节点，返回一个迭代器
-    pub fn current_children(&self) -> impl Iterator<Item = &TreeNode> {
+    /// 获取当前棋盘状态
+    pub fn current_board_state(&self) -> Vec<(Point, Color)> {
+        if let Some(current) = self.current_path.last() {
+            self.tree.board_state(*current)
+        } else {
+            vec![]
+        }
+    }
+
+    /// 获取当前节点的所有子节点，返回一个迭代器（同时给出索引）
+    pub fn current_children(&self) -> impl Iterator<Item = (usize, &TreeNode)> {
         self.current_path
             .last()
-            .and_then(|&idx| Some(self.tree.children(idx)))
+            .map(|&idx| self.tree.get_children(idx))
             .into_iter()
             .flatten()
     }
 
-    /// 前进到指定子节点（切换变招）
+    /// 前进到指定子节点
     pub fn move_to_child(&mut self, child_idx: usize) -> bool {
         if let Some(current) = self.current_path.last() {
-            if let Some(node) = self.tree.get(*current) {
+            if let Some(node) = self.tree.node(*current) {
                 if node.children.contains(&child_idx) {
                     self.current_path.push(child_idx);
 
@@ -218,15 +252,15 @@ impl GameRecord {
         false
     }
 
-    /// 落子（在当前节点添加子节点并前进）
-    pub fn play_move(&mut self, mv: Move) -> bool {
+    /// 落子，返回新节点索引或 `None`
+    pub fn play_move(&mut self, mv: Move) -> Option<usize> {
         if let Some(current) = self.current_path.last() {
             let props = NodeProperties::default();
-            let new_idx = self.tree.add_child(*current, Some(mv), props);
+            let new_idx = self.tree.add_child_node(*current, Some(mv), props)?;
             self.current_path.push(new_idx);
-            true
+            Some(new_idx)
         } else {
-            false
+            None
         }
     }
 
@@ -253,40 +287,13 @@ impl GameRecord {
             Color::Black
         };
         for &idx in &self.current_path {
-            if let Some(node) = self.tree.get(idx) {
+            if let Some(node) = self.tree.node(idx) {
                 if let Some(mv) = &node.move_data {
                     turn = mv.color.opposite();
                 }
             }
         }
         Some(turn)
-    }
-
-    /// 计算当前节点对应的棋盘状态（从根节点开始逐步应用着法和设置）
-    pub fn current_board(&self) -> Board {
-        let mut board = Board::new(self.info.board_size);
-        // 应用根节点的设置（如 AB/AW）
-        if let Some(root) = self.tree.get(self.tree.root_index) {
-            for (pt, color) in &root.props.setup {
-                board.set(*pt, *color);
-            }
-        }
-        // 从根节点开始，按路径应用着法和设置
-        for &idx in &self.current_path {
-            if let Some(node) = self.tree.get(idx) {
-                // 应用当前节点的设置（如 AB/AW）
-                for (pt, color) in &node.props.setup {
-                    board.set(*pt, *color);
-                }
-                // 应用当前节点的着法
-                if let Some(mv) = &node.move_data {
-                    if let Some(pt) = mv.point {
-                        board.set(pt, mv.color);
-                    }
-                }
-            }
-        }
-        board
     }
 }
 

@@ -36,4 +36,3 @@ pub struct EyeAnalysis {
     /// 棋块状态
     pub status: GroupStatus,
 }
-

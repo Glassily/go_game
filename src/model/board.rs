@@ -5,7 +5,7 @@ use std::{
 
 use crate::model::{Color, EyeAnalysis, EyeType, GroupStatus, Move, Point};
 
-/// 棋盘状态
+/// 棋盘
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Board {
     /// 棋盘大小
@@ -140,32 +140,54 @@ impl Board {
         nbs
     }
 
-    /// 获取连通块 (相同颜色的相邻棋子)
-    /// 可以考虑使用二维数组标记访问状态以提高效率，但这里使用 HashSet 简化实现
+    /// 获取对角点（四方向）
+    pub fn diagonals(&self, pt: Point) -> Vec<Point> {
+        let mut diags = Vec::new();
+        let (x, y) = (pt.x as i32, pt.y as i32);
+        let dirs = [(1, 1), (1, -1), (-1, 1), (-1, -1)];
+        for (dx, dy) in dirs {
+            let nx = x + dx;
+            let ny = y + dy;
+            if nx >= 0 && nx < self.size as i32 && ny >= 0 && ny < self.size as i32 {
+                diags.push(Point {
+                    x: nx as u8,
+                    y: ny as u8,
+                });
+            }
+        }
+        diags
+    }
+
+    /// 获取连通块 (相同颜色的相邻棋子)，必须完全连通
     pub fn get_group(&self, pt: Point) -> HashSet<Point> {
         let color = match self.get(pt) {
             Some(c) => c,
             None => return HashSet::new(),
         };
-        let mut visited = HashSet::new();
+        let mut visited = vec![vec![false; self.size as usize]; self.size as usize];
         let mut queue = VecDeque::new();
+        let mut result = HashSet::new();
+        
         queue.push_back(pt);
-        visited.insert(pt);
+        visited[pt.x as usize][pt.y as usize] = true;
+        result.insert(pt);
 
+        // queue-based BFS 遍历连通块
         while let Some(p) = queue.pop_front() {
             for neighbor in self.neighbors(p) {
-                if !visited.contains(&neighbor) && self.get(neighbor) == Some(color) {
-                    visited.insert(neighbor);
+                let (x,y) = (neighbor.x as usize, neighbor.y as usize);
+                if !visited[x][y] && self.get(neighbor) == Some(color) {
+                    visited[x][y] = true;
+                    result.insert(neighbor);
                     queue.push_back(neighbor);
                 }
             }
         }
-        visited
+        result
     }
 
-    /// 计算连通块的气数
-    /// 可以考虑使用二维布尔数组标记已计算的气点以避免重复计算，但这里使用 HashSet 简化实现
-    pub fn count_liberties(&self, group: &HashSet<Point>) -> usize {
+    /// 计算连通块的气点
+    pub fn count_liberties(&self, group: &HashSet<Point>) -> HashSet<Point> {
         let mut liberties = HashSet::new();
         for &pt in group {
             for nb in self.neighbors(pt) {
@@ -174,12 +196,12 @@ impl Board {
                 }
             }
         }
-        liberties.len()
+        liberties
     }
 
-    /// 同时收集连通块和气数（优化：避免重复遍历），返回 (连通块, 气数)
+    /// 同时收集连通块和气数（优化：避免重复遍历），返回 (连通块, 气点集合)
     /// 注意：调用此方法前应先检查 pt 是否有棋子，否则返回的连通块会是空的，气数也会是0。
-    pub fn collect_group_and_liberties(&self, pt: Point) -> (HashSet<Point>, usize) {
+    pub fn collect_group_and_liberties(&self, pt: Point) -> (HashSet<Point>, HashSet<Point>) {
         let color = self.get(pt).unwrap();
         let mut group = HashSet::new();
         let mut liberties = HashSet::new();
@@ -201,44 +223,38 @@ impl Board {
                 }
             }
         }
-        (group, liberties.len())
+        (group, liberties)
     }
 
-    /// 移除指定颜色所有无气棋子 (返回被移除的棋子列表)
-    /// 注意：调用此方法前应先执行落子操作，因为落子可能导致对方棋子无气。
-    pub fn remove_dead_groups(&mut self, color: Color) -> Vec<Point> {
+    /// 移除因落子而死的棋子 (返回被移除的棋子列表)
+    pub fn remove_dead_groups_after_move (&mut self, mv: &Move) -> Vec<Point> {
         let mut removed = Vec::new();
-        // 找出所有对方的棋子，检查其连通块是否有气
-        let mut visited = HashSet::new();
-        for y in 0..self.size {
-            for x in 0..self.size {
-                let pt = Point { x, y };
-                if let Some(c) = self.get(pt) {
-                    if c == color && !visited.contains(&pt) {
-                        let (group, libs) = self.collect_group_and_liberties(pt);
-                        visited.extend(group.iter().copied());
-                        if libs == 0 {
-                            for &p in &group {
-                                self.remove(p);
-                                removed.push(p);
-                            }
-                        }
+        let opponent = mv.color.opposite();
+
+        for nb in self.neighbors(mv.point.unwrap()) {
+            if self.get(nb) == Some(opponent) {
+                let group = self.get_group(nb);
+                if self.count_liberties(&group).len() == 0 {
+                    for &p in &group {
+                        self.remove(p);
+                        removed.push(p);
                     }
                 }
             }
         }
         removed
+
     }
 
-    /// 优化版本：在一次 BFS 中同时标记连通块和计算气数，避免重复遍历。
-    pub fn remove_dead_groups_fast(&mut self, color: Color) -> Vec<Point> {
+    /// 移除指定颜色所有无气棋子 (返回被移除的棋子列表)
+    pub fn remove_dead_groups(&mut self, color: Color) -> Vec<Point> {
         let size = self.size;
         let mut visited = vec![vec![false; size as usize]; size as usize];
         let mut removed = Vec::new();
     
-        for y in 0..size {
-            for x in 0..size {
-                if visited[y as usize][x as usize] { continue; }
+        for x in 0..size {
+            for y in 0..size {
+                if visited[x as usize][y as usize] { continue; }
                 let pt = Point { x, y };
                 if let Some(c) = self.get(pt) {
                     if c == color {
@@ -247,15 +263,15 @@ impl Board {
                         let mut group = Vec::new();      // 存储组内点
                         let mut has_liberty = false;
                         queue.push_back(pt);
-                        visited[y as usize][x as usize] = true;
+                        visited[x as usize][y as usize] = true;
                         group.push(pt);
     
                         while let Some(p) = queue.pop_front() {
                             for nb in self.neighbors(p) {
-                                if visited[nb.y as usize][nb.x as usize] { continue; }
+                                if visited[nb.x as usize][nb.y as usize] { continue; }
                                 match self.get(nb) {
                                     Some(c2) if c2 == color => {
-                                        visited[nb.y as usize][nb.x as usize] = true;
+                                        visited[nb.x as usize][nb.y as usize] = true;
                                         queue.push_back(nb);
                                         group.push(nb);
                                     }
@@ -323,24 +339,6 @@ impl Board {
         } else {
             Some(EyeType::False)
         }
-    }
-
-    /// 获取对角点（四方向）
-    pub fn diagonals(&self, pt: Point) -> Vec<Point> {
-        let mut diags = Vec::new();
-        let (x, y) = (pt.x as i32, pt.y as i32);
-        let dirs = [(1, 1), (1, -1), (-1, 1), (-1, -1)];
-        for (dx, dy) in dirs {
-            let nx = x + dx;
-            let ny = y + dy;
-            if nx >= 0 && nx < self.size as i32 && ny >= 0 && ny < self.size as i32 {
-                diags.push(Point {
-                    x: nx as u8,
-                    y: ny as u8,
-                });
-            }
-        }
-        diags
     }
 
     /// 分析连通块的眼位和死活状态
@@ -437,9 +435,9 @@ impl Board {
 
         // 无眼或假眼：检查外部气数
         let liberties = self.count_liberties(group);
-        if liberties == 0 {
+        if liberties.len() == 0 {
             GroupStatus::Dead
-        } else if liberties <= 2 {
+        } else if liberties.len() <= 2 {
             GroupStatus::Uncertain // 需要看谁先走
         } else {
             GroupStatus::Uncertain // 气多，暂时安全
@@ -469,11 +467,11 @@ impl Board {
             let mut temp = self.clone();
             temp.set(lib, opponent);
             let opp_group = temp.get_group(lib);
-            if temp.count_liberties(&opp_group) == 0 {
+            if temp.count_liberties(&opp_group).len() == 0 {
                 // 对方落子自杀，检查我方
                 temp.set(lib, color); // 恢复后模拟我方
                 let my_group = temp.get_group(lib);
-                if temp.count_liberties(&my_group) == 0 {
+                if temp.count_liberties(&my_group).len() == 0 {
                     return true; // 双活
                 }
             }
@@ -509,7 +507,7 @@ impl Board {
         for nb in temp_board.neighbors(pt) {
             if temp_board.get(nb) == Some(opponent) {
                 let group = temp_board.get_group(nb);
-                if temp_board.count_liberties(&group) == 0 {
+                if temp_board.count_liberties(&group).len() == 0 {
                     captured = true;
                     break;
                 }
@@ -521,10 +519,10 @@ impl Board {
         let my_liberties = temp_board.count_liberties(&my_group);
 
         // 5. 合法性判断
-        if my_liberties > 0 {
+        if my_liberties.len() > 0 {
             // 有气，合法
             // 劫规则检查
-            if !captured && my_group.len() == 1 && my_liberties == 1 {
+            if !captured && my_group.len() == 1 && my_liberties.len() == 1 {
                 if let Some(ko) = ko_point {
                     if pt == ko {
                         return false; // 违反劫规则
@@ -568,29 +566,17 @@ impl Board {
 
         let pt = mv.point.unwrap();
         let color = mv.color;
-        let opponent = color.opposite();
 
         // 1. 落子
         self.set(pt, color);
 
         // 2. 提掉对方无气的棋子
-        let mut captured = Vec::new();
-        for nb in self.neighbors(pt) {
-            if self.get(nb) == Some(opponent) {
-                let group = self.get_group(nb);
-                if self.count_liberties(&group) == 0 {
-                    for &p in &group {
-                        self.remove(p);
-                        captured.push(p);
-                    }
-                }
-            }
-        }
+        let captured = self.remove_dead_groups_after_move(mv);
 
         // 3. 计算劫点 (简单劫：提单子且自己被提后也是单子)
         let new_ko = if captured.len() == 1 {
             let my_group = self.get_group(pt);
-            if my_group.len() == 1 && self.count_liberties(&my_group) == 1 {
+            if my_group.len() == 1 && self.count_liberties(&my_group).len() == 1 {
                 Some(captured[0]) // 被提的位置是潜在的劫点
             } else {
                 None
@@ -776,6 +762,46 @@ mod tests {
         }
     }
 
+    /// 测试对角点
+    #[test]
+    fn test_diagonals() {
+        //点位于中间
+        let board = Board::new(5);
+        let pt = Point { x: 2, y: 2 };
+        let diagonals = board.diagonals(pt);
+        let expected = vec![
+            Point { x: 1, y: 1 },
+            Point { x: 3, y: 1 },
+            Point { x: 3, y: 3 },
+            Point { x: 1, y: 3 },
+        ];
+        assert_eq!(diagonals.len(), expected.len());
+        for nb in expected {
+            assert!(diagonals.contains(&nb));
+        }
+
+        //点位于边界
+        let pt = Point { x: 1, y: 0 };
+        let diagonals = board.diagonals(pt);
+        let expected = vec![
+            Point { x: 0, y: 1 },
+            Point { x: 2, y: 1 },
+        ];
+        assert_eq!(diagonals.len(), expected.len());
+        for nb in expected {
+            assert!(diagonals.contains(&nb));
+        }
+
+        //点位于角落
+        let pt = Point { x: 4, y: 4 };
+        let diagonals = board.diagonals(pt);
+        let expected = vec![Point { x: 3, y: 3 }];
+        assert_eq!(diagonals.len(), expected.len());
+        for nb in expected {
+            assert!(diagonals.contains(&nb));
+        }
+    }
+
     /// 测试连通块
     #[test]
     fn test_get_group() {
@@ -872,13 +898,13 @@ mod tests {
         board.set(pt, Color::Black);
         let group = board.get_group(pt);
         assert_eq!(group.len(), 1);
-        assert_eq!(board.count_liberties(&group), 4);
+        assert_eq!(board.count_liberties(&group).len(), 4);
 
         // 连接后气数减少
         board.set(Point { x: 2, y: 3 }, Color::Black);
         let group = board.get_group(pt);
         assert_eq!(group.len(), 2);
-        assert_eq!(board.count_liberties(&group), 6); // 2*4 - 2(共享边) = 6
+        assert_eq!(board.count_liberties(&group).len(), 6); // 2*4 - 2(共享边) = 6
     }
 
     // 测试劫的特殊情况
@@ -930,4 +956,38 @@ mod tests {
         // 回提后新的劫点是之前被提的位置
         assert_eq!(ko_point.unwrap(), Point { x: 1, y: 1 });
     }
+
+    
+
+    #[test]
+    fn test_eye_analysis() {
+        let mut board = Board::new(5);
+        // 角落的空点（0,0）
+        board.set(Point { x: 0, y: 1 }, Color::Black);
+        board.set(Point { x: 1, y: 0 }, Color::Black);
+        // 中间的空点（1,1）
+        board.set(Point { x: 1, y: 2 }, Color::Black);
+        board.set(Point { x: 2, y: 1 }, Color::Black);
+        board.set(Point { x: 2, y: 2 }, Color::Black);
+        // 边上的空点（2,0）
+        board.set(Point { x: 3, y: 0 }, Color::Black);
+        board.set(Point { x: 3, y: 1 }, Color::White);
+
+        let eye1 = Point { x: 0, y: 0 };
+        let eye2 = Point { x: 1, y: 1 };
+        let eye3 = Point { x: 2, y: 0 };
+
+        // 中间的空点是一个真眼
+        let eye_type = board.analyze_eye(eye3, Color::Black);
+        assert_eq!(eye_type, Some(EyeType::Real));
+
+        // 边上的空点是假眼
+        let eye_type = board.analyze_eye(eye2, Color::Black);
+        assert_eq!(eye_type, Some(EyeType::Real));
+
+        // 角落的空点是真眼
+        let eye_type = board.analyze_eye(eye1, Color::Black);
+        assert_eq!(eye_type, Some(EyeType::False));
+    }
+
 }

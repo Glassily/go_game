@@ -44,7 +44,7 @@ impl LegalityRule for ChineseRule {
                 // 模拟落子后的局面
                 temp.set(mv.point.unwrap(), mv.color);
                 // 移除无气棋子
-                temp.remove_dead_groups(mv.color.opposite());
+                temp.remove_dead_groups_after_move(mv);
                 if hist.contains(&temp) {
                     return false;
                 }
