@@ -98,15 +98,19 @@ impl SgfParser {
                 ';' => {
                     self.pos += 1;
                     let props = self.parse_properties()?;
-                    let is_root = self.record.tree.nodes.len() == 1
-                        && self.record.tree.nodes[0].move_data == None;
-                    //不带移动数据的属性组怎么处理？
+                    // 初步判断，只有一个节点
+                    let is_root = self.record.tree.nodes.len() == 1;
 
                     // 创建新节点
                     let (move_data, node_props) = self.apply_props(&props, is_root)?;
+
+                    // 如果新节点属性没有移动数据，认为是元数据，合并进根节点
+                    let is_root = move_data == None;
+
                     println!();
                     println!("move_data: {:?}", move_data);
                     println!("node_props: {:?}", node_props);
+                    println!("root_node: {:?}", self.record.tree.nodes[0]);
                     println!("is_root: {:?}", is_root);
 
                     if is_root {
@@ -251,6 +255,7 @@ impl SgfParser {
                         .unwrap_or("19");
                     self.board_size = s.parse().unwrap_or(19);
                     self.record.info.board_size = self.board_size;
+                    println!("board_size: {}", self.board_size);
                     break;
                 }
             }
@@ -293,6 +298,9 @@ impl SgfParser {
                     }
                 }
                 // 根节点元数据
+                "GM" => {
+                    continue;
+                }
                 "SZ" => {
                     continue;
                 }
@@ -301,6 +309,10 @@ impl SgfParser {
                         self.record.info.komi =
                             values.first().and_then(|s| s.parse().ok()).unwrap_or(6.5);
                     }
+                }
+                "FF" => {
+                    // 格式标准忽略
+                    continue;
                 }
                 "HA" => {
                     if is_root {
@@ -623,14 +635,16 @@ impl GameRecord {
         self.write_node_properties(idx, f)?;
 
         if !node.children.is_empty() {
-            // 主线：第一个子节点继续当前序列
-            self.write_node_sequence(node.children[0], f)?;
-
-            // 分支：后续子节点作为独立变招包裹在 () 中
-            for &child_idx in node.children.iter().skip(1) {
-                write!(f, "(")?;
-                self.write_node_sequence(child_idx, f)?;
-                write!(f, ")")?;
+            if node.children.len() == 1 {
+                // 只有一个子节点，不加()
+                self.write_node_sequence(node.children[0], f)?;
+            } else {
+                // 多个子节点包裹在 () 中
+                for &child_idx in node.children.iter() {
+                    write!(f, "(")?;
+                    self.write_node_sequence(child_idx, f)?;
+                    write!(f, ")")?;
+                }
             }
         }
         Ok(())
@@ -768,6 +782,7 @@ fn escape_sgf(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+
     use crate::{game::record::GameTree, model::Board};
 
     use super::*;
@@ -783,10 +798,16 @@ mod tests {
     fn test_parse_branching_path_recovery() {
         // 验证分支解析后路径正确恢复到主线
         let sgf = "(;FF[4]SZ[9];B[aa];W[bb](;B[cc])(;B[dd]))"; // 主线 B[aa] -> W[bb]，分支 B[cc] 和 B[dd]
-        let record = SgfParser::new(sgf).parse().unwrap();
+        let mut record = SgfParser::new(sgf).parse().unwrap();
         assert_eq!(record.info.board_size, 9);
-        let w_bb_idx = record.tree.root_index + 1;
+        let w_bb_idx = record.tree.root_index + 2;
         assert_eq!(record.tree.node(w_bb_idx).unwrap().children.len(), 2);
+        let stones = record.current_board_state();
+        let board = Board::from_setup(9, &stones);
+        println!("{}", board);
+
+        let (idx, _) = record.current_children().next().unwrap();
+        record.move_to_child(idx);
         let stones = record.current_board_state();
         let board = Board::from_setup(9, &stones);
         println!("{}", board);
@@ -823,10 +844,7 @@ mod tests {
             println!("n1 raw props: {:?}", n1.props.raw_sgf_props);
             println!("n2 raw props: {:?}", n2.props.raw_sgf_props);
             // 原始属性不必完全一致，但数量应该相同
-            assert_eq!(
-                n1.props.raw_sgf_props.len(),
-                n2.props.raw_sgf_props.len()
-            );
+            assert_eq!(n1.props.raw_sgf_props.len(), n2.props.raw_sgf_props.len());
         }
     }
 

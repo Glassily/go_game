@@ -57,6 +57,26 @@ impl GameTree {
         self.nodes.get_mut(idx)
     }
 
+    pub fn add_root_node(
+        &mut self,
+        move_data: Option<Move>,
+        root_props: NodeProperties,
+    ) -> Option<usize> {
+        if self.nodes.len() > 0 {
+            return None;
+        }
+
+        let root = TreeNode {
+            parent_index: None,
+            children: vec![],
+            move_data: move_data,
+            props: root_props,
+        };
+        self.nodes.push(root);
+        self.root_index = 0;
+        Some(0)
+    }
+
     /// 添加子节点（变招）
     pub fn add_child_node(
         &mut self,
@@ -229,6 +249,23 @@ impl GameRecord {
         }
     }
 
+    /// 获取当前应落子颜色（根据已有着法推断）
+    pub fn current_turn(&self) -> Option<Color> {
+        let mut turn = if self.info.handicap > 1 {
+            Color::White
+        } else {
+            Color::Black
+        };
+        for &idx in &self.current_path {
+            if let Some(node) = self.tree.node(idx) {
+                if let Some(mv) = &node.move_data {
+                    turn = mv.color.opposite();
+                }
+            }
+        }
+        Some(turn)
+    }
+
     /// 获取当前节点的所有子节点，返回一个迭代器（同时给出索引）
     pub fn current_children(&self) -> impl Iterator<Item = (usize, &TreeNode)> {
         self.current_path
@@ -244,7 +281,6 @@ impl GameRecord {
             if let Some(node) = self.tree.node(*current) {
                 if node.children.contains(&child_idx) {
                     self.current_path.push(child_idx);
-
                     return true;
                 }
             }
@@ -252,15 +288,18 @@ impl GameRecord {
         false
     }
 
-    /// 落子，返回新节点索引或 `None`
-    pub fn play_move(&mut self, mv: Move) -> Option<usize> {
-        if let Some(current) = self.current_path.last() {
-            let props = NodeProperties::default();
-            let new_idx = self.tree.add_child_node(*current, Some(mv), props)?;
-            self.current_path.push(new_idx);
-            Some(new_idx)
+    /// 前进到第一个子节点
+    pub fn move_to_first_child(&mut self) -> bool {
+        let first_child_idx = self
+            .current_path
+            .last()
+            .and_then(|&current_idx| self.tree.get_children(current_idx).next())
+            .map(|(idx, _)| idx);
+
+        if let Some(child_idx) = first_child_idx {
+            self.move_to_child(child_idx)
         } else {
-            None
+            false
         }
     }
 
@@ -279,22 +318,38 @@ impl GameRecord {
         self.current_path = vec![self.tree.root_index];
     }
 
-    /// 获取当前应落子颜色（根据已有着法推断）
-    pub fn current_turn(&self) -> Option<Color> {
-        let mut turn = if self.info.handicap > 1 {
-            Color::White
+    /// 落子，返回新节点索引或 `None`
+    pub fn play_move(&mut self, mv: Move) -> Option<usize> {
+        if let Some(current) = self.current_path.last() {
+            let props = NodeProperties::default();
+            let new_idx = self.tree.add_child_node(*current, Some(mv), props)?;
+            self.current_path.push(new_idx);
+            Some(new_idx)
         } else {
-            Color::Black
-        };
-        for &idx in &self.current_path {
-            if let Some(node) = self.tree.node(idx) {
-                if let Some(mv) = &node.move_data {
-                    turn = mv.color.opposite();
-                }
-            }
+            None
         }
-        Some(turn)
     }
+
+    /// 添加评论
+    pub fn add_comment(&mut self, comment: String) -> bool {
+        if let Some(node) = self.current_node_mut() {
+            node.props.comment = comment;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// 添加标注
+    pub fn add_label(&mut self, point: Point, label: String) -> bool {
+        if let Some(node) = self.current_node_mut() {
+            node.props.labels.insert(point, label);
+            true
+        } else {
+            false
+        }
+    }
+
 }
 
 impl Default for GameRecord {
