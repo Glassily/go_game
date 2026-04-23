@@ -299,9 +299,11 @@ impl SgfParser {
                 }
                 // 根节点元数据
                 "GM" => {
+                    // 使用默认值
                     continue;
                 }
                 "SZ" => {
+                    // 已经读取了，这里忽略
                     continue;
                 }
                 "KM" => {
@@ -311,7 +313,7 @@ impl SgfParser {
                     }
                 }
                 "FF" => {
-                    // 格式标准忽略
+                    // 默认4，格式标准忽略
                     continue;
                 }
                 "HA" => {
@@ -802,13 +804,13 @@ mod tests {
         assert_eq!(record.info.board_size, 9);
         let w_bb_idx = record.tree.root_index + 2;
         assert_eq!(record.tree.node(w_bb_idx).unwrap().children.len(), 2);
-        let stones = record.current_board_state();
+        let stones = record.current_board();
         let board = Board::from_setup(9, &stones);
         println!("{}", board);
 
         let (idx, _) = record.current_children().next().unwrap();
         record.move_to_child(idx);
-        let stones = record.current_board_state();
+        let stones = record.current_board();
         let board = Board::from_setup(9, &stones);
         println!("{}", board);
     }

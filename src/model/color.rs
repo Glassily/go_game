@@ -3,9 +3,9 @@ use std::fmt::Display;
 /// 棋子颜色
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Color {
-    /// 黑子●
+    /// 黑子 ●
     Black,
-    /// 白子○
+    /// 白子 ○
     White,
 }
 

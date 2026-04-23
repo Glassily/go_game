@@ -10,8 +10,12 @@ pub struct Point {
 }
 
 impl Point {
+    pub fn new(x: u8, y: u8) -> Self {
+        Self { x, y }
+    }
+
     /// 创建带边界验证的坐标
-    pub fn new(x: u8, y: u8, board_size: u8) -> Option<Self> {
+    pub fn new_valid(x: u8, y: u8, board_size: u8) -> Option<Self> {
         if x < board_size && y < board_size {
             Some(Self { x, y })
         } else {
@@ -53,7 +57,7 @@ impl Point {
             return None; // 'I' 是无效的列
         };
 
-        Self::new(col, row, board_size)
+        Self::new_valid(col, row, board_size)
     }
 
     /// SGF 单字符坐标转换 (a-t 跳过 i) -> 0-based 数值
@@ -112,9 +116,9 @@ mod tests {
 
     #[test]
     fn test_point_validation() {
-        assert!(Point::new(0, 0, 19).is_some());
-        assert!(Point::new(18, 18, 19).is_some());
-        assert!(Point::new(19, 0, 19).is_none());
+        assert!(Point::new_valid(0, 0, 19).is_some());
+        assert!(Point::new_valid(18, 18, 19).is_some());
+        assert!(Point::new_valid(19, 0, 19).is_none());
         assert!(Point::from_sgf("tt", 19).is_some());
         assert!(Point::from_sgf("uu", 19).is_none()); // t=18, u=19, 19x19 棋盘最大索引 18
     }

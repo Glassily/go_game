@@ -56,7 +56,7 @@ impl Board {
     }
 
     /// 可视化棋盘（文本格式）
-    pub fn to_string_with_moves(&self, last_move: Option<Move>) -> String {
+    pub fn to_string_with_move(&self, last_move: Move) -> String {
         let mut result = String::new();
 
         // 顶部坐标
@@ -77,21 +77,18 @@ impl Board {
             result.push_str(&format!("{:2} ", y + 1));
             for x in 0..self.size {
                 let pt = Point { x, y };
+                // 判断last_move
+                if let Some(mv_pt) = last_move.point {
+                    if pt == mv_pt {
+                        result.push('∆');
+                        result.push(' ');
+                        continue;
+                    }
+                }
                 let ch = match self.get(pt) {
                     Some(Color::Black) => "●",
                     Some(Color::White) => "○",
-                    None => {
-                        // 标记最后落子位置
-                        if let Some(mv) = last_move {
-                            if mv.point == Some(pt) && !mv.is_pass() {
-                                "*"
-                            } else {
-                                "+"
-                            }
-                        } else {
-                            "+"
-                        }
-                    }
+                    None => "+",
                 };
                 result.push_str(ch);
                 result.push(' ');
@@ -111,8 +108,8 @@ impl Board {
             result.push(' ');
         }
         // 记录最后一手棋
-        if let Some(mv) = last_move {
-            result.push_str(&format!("\nLast move: {}", mv));
+        if last_move.point.is_some() {
+            result.push_str(&format!("\nLast move: {}\n", last_move));
         }
         result
     }
@@ -167,7 +164,7 @@ impl Board {
         let mut visited = vec![vec![false; self.size as usize]; self.size as usize];
         let mut queue = VecDeque::new();
         let mut result = HashSet::new();
-        
+
         queue.push_back(pt);
         visited[pt.x as usize][pt.y as usize] = true;
         result.insert(pt);
@@ -175,7 +172,7 @@ impl Board {
         // queue-based BFS 遍历连通块
         while let Some(p) = queue.pop_front() {
             for neighbor in self.neighbors(p) {
-                let (x,y) = (neighbor.x as usize, neighbor.y as usize);
+                let (x, y) = (neighbor.x as usize, neighbor.y as usize);
                 if !visited[x][y] && self.get(neighbor) == Some(color) {
                     visited[x][y] = true;
                     result.insert(neighbor);
@@ -227,7 +224,7 @@ impl Board {
     }
 
     /// 移除因落子而死的棋子 (返回被移除的棋子列表)
-    pub fn remove_dead_groups_after_move (&mut self, mv: &Move) -> Vec<Point> {
+    pub fn remove_dead_groups(&mut self, mv: &Move) -> Vec<Point> {
         let mut removed = Vec::new();
         let opponent = mv.color.opposite();
 
@@ -243,32 +240,35 @@ impl Board {
             }
         }
         removed
-
     }
 
     /// 移除指定颜色所有无气棋子 (返回被移除的棋子列表)
-    pub fn remove_dead_groups(&mut self, color: Color) -> Vec<Point> {
+    pub fn remove_all_dead(&mut self, color: Color) -> Vec<Point> {
         let size = self.size;
         let mut visited = vec![vec![false; size as usize]; size as usize];
         let mut removed = Vec::new();
-    
+
         for x in 0..size {
             for y in 0..size {
-                if visited[x as usize][y as usize] { continue; }
+                if visited[x as usize][y as usize] {
+                    continue;
+                }
                 let pt = Point { x, y };
                 if let Some(c) = self.get(pt) {
                     if c == color {
                         // BFS 同时标记 group 和计算气数
                         let mut queue = VecDeque::new();
-                        let mut group = Vec::new();      // 存储组内点
+                        let mut group = Vec::new(); // 存储组内点
                         let mut has_liberty = false;
                         queue.push_back(pt);
                         visited[x as usize][y as usize] = true;
                         group.push(pt);
-    
+
                         while let Some(p) = queue.pop_front() {
                             for nb in self.neighbors(p) {
-                                if visited[nb.x as usize][nb.y as usize] { continue; }
+                                if visited[nb.x as usize][nb.y as usize] {
+                                    continue;
+                                }
                                 match self.get(nb) {
                                     Some(c2) if c2 == color => {
                                         visited[nb.x as usize][nb.y as usize] = true;
@@ -280,7 +280,7 @@ impl Board {
                                 }
                             }
                         }
-    
+
                         if !has_liberty {
                             for &p in &group {
                                 self.remove(p);
@@ -571,7 +571,7 @@ impl Board {
         self.set(pt, color);
 
         // 2. 提掉对方无气的棋子
-        let captured = self.remove_dead_groups_after_move(mv);
+        let captured = self.remove_dead_groups(mv);
 
         // 3. 计算劫点 (简单劫：提单子且自己被提后也是单子)
         let new_ko = if captured.len() == 1 {
@@ -648,7 +648,7 @@ impl Board {
 }
 
 impl Display for Board {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let mut result = String::new();
 
         // 顶部坐标
@@ -783,10 +783,7 @@ mod tests {
         //点位于边界
         let pt = Point { x: 1, y: 0 };
         let diagonals = board.diagonals(pt);
-        let expected = vec![
-            Point { x: 0, y: 1 },
-            Point { x: 2, y: 1 },
-        ];
+        let expected = vec![Point { x: 0, y: 1 }, Point { x: 2, y: 1 }];
         assert_eq!(diagonals.len(), expected.len());
         for nb in expected {
             assert!(diagonals.contains(&nb));
@@ -863,29 +860,6 @@ mod tests {
     }
 
     #[test]
-    fn test_ko_rule() {
-        let mut board = Board::new(5);
-        // 创建劫的形状
-        board.set(Point { x: 1, y: 1 }, Color::Black);
-        board.set(Point { x: 1, y: 3 }, Color::Black);
-        board.set(Point { x: 2, y: 2 }, Color::Black);
-        board.set(Point { x: 3, y: 1 }, Color::White);
-        board.set(Point { x: 3, y: 3 }, Color::White);
-        board.set(Point { x: 2, y: 4 }, Color::White);
-
-        println!("{}", board.to_string_with_moves(None));
-        // 白提黑一子
-        let mv_white = Move::new(Color::White, Point { x: 2, y: 1 }, 5).unwrap();
-        let (_, ko_point) = board.apply_move(&mv_white, None, false).unwrap();
-
-        assert_eq!(ko_point, Some(Point { x: 2, y: 2 }));
-        println!("{}", board.to_string_with_moves(None));
-        // 黑不能立即回提（劫）
-        let mv_black = Move::new(Color::Black, Point { x: 2, y: 2 }, 5).unwrap();
-        assert!(!board.is_legal(&mv_black, ko_point, false));
-    }
-
-    #[test]
     fn test_liberty_counting() {
         let board = Board::new(5);
         // 单个棋子有 4 口气
@@ -924,7 +898,7 @@ mod tests {
         // 白提黑一子
         let mv_white = Move::new(Color::White, Point { x: 1, y: 1 }, 5).unwrap();
         let (mv_black, ko_point) = board.apply_move(&mv_white, None, false).unwrap();
-        println!("{}", board.to_string_with_moves(Some(mv_white)));
+        println!("{}", board.to_string_with_move(mv_white));
 
         assert_eq!(ko_point, Some(Point { x: 2, y: 1 }));
         assert_eq!(mv_black.len(), 1);
@@ -935,18 +909,18 @@ mod tests {
         assert!(!board.is_legal(&mv_black, ko_point, false));
         let res = board.apply_move(&mv_black, ko_point, false);
         assert!(res.is_none()); //黑应该不能立即回提（劫）
-        println!("棋盘应该没有变化：\n{}\n", board.to_string_with_moves(None));
+        println!("棋盘应该没有变化：\n{}\n", board);
 
         // 黑先走其他位置,白应一手棋
         let mv_black_other = Move::new(Color::Black, Point { x: 0, y: 0 }, 5).unwrap();
         let mv_white_other = Move::new(Color::White, Point { x: 3, y: 0 }, 5).unwrap();
         assert!(board.is_legal(&mv_black_other, ko_point, false));
         let (_, ko_point) = board.apply_move(&mv_black_other, ko_point, false).unwrap();
-        println!("{}", board.to_string_with_moves(Some(mv_black_other)));
+        println!("{}", board.to_string_with_move(mv_black_other));
 
         assert!(board.is_legal(&mv_white_other, ko_point, false));
         let (_, ko_point) = board.apply_move(&mv_white_other, ko_point, false).unwrap();
-        println!("{}", board.to_string_with_moves(Some(mv_white_other)));
+        println!("{}", board.to_string_with_move(mv_white_other));
 
         // 现在黑可以回提了
         assert_eq!(ko_point, None);
@@ -956,8 +930,6 @@ mod tests {
         // 回提后新的劫点是之前被提的位置
         assert_eq!(ko_point.unwrap(), Point { x: 1, y: 1 });
     }
-
-    
 
     #[test]
     fn test_eye_analysis() {
@@ -989,5 +961,4 @@ mod tests {
         let eye_type = board.analyze_eye(eye1, Color::Black);
         assert_eq!(eye_type, Some(EyeType::False));
     }
-
 }
