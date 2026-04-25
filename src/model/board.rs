@@ -1,9 +1,10 @@
 use std::{
-    collections::{HashSet, VecDeque},
+    borrow::Borrow,
+    collections::{HashMap, HashSet, VecDeque},
     fmt::Display,
 };
 
-use crate::model::{Color, EyeAnalysis, EyeType, GroupStatus, Move, Point};
+use crate::model::{Color, EmptyRegion, EyeAnalysis, EyeType, GroupSet, GroupStatus, Move, Point};
 
 /// 棋盘
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,9 +23,13 @@ impl Board {
     }
 
     /// 根据 setup 列表初始化棋盘 (AB/AW)，默认列表是无序的
-    pub fn from_setup(size: u8, stones: &[(Point, Color)]) -> Self {
+    pub fn from_setup(
+        size: u8,
+        stones: impl IntoIterator<Item = impl Borrow<(Point, Color)>>,
+    ) -> Self {
         let mut board = Self::new(size);
-        for &(pt, color) in stones {
+        for item in stones {
+            let (pt, color) = *item.borrow();
             if pt.is_valid(size) {
                 board.grid[pt.y as usize][pt.x as usize] = Some(color);
             }
@@ -58,29 +63,17 @@ impl Board {
     /// 可视化棋盘（文本格式）
     pub fn to_string_with_move(&self, last_move: Move) -> String {
         let mut result = String::new();
-
-        // 顶部坐标
-        result.push_str("   ");
-        for x in 0..self.size {
-            let c = if x >= 8 {
-                (b'A' + x + 1) as char
-            } else {
-                (b'A' + x) as char
-            };
-            result.push(c);
-            result.push(' ');
-        }
-        result.push('\n');
+        self.write_coord(&mut result);
 
         // 棋盘内容
         for y in 0..self.size {
-            result.push_str(&format!("{:2} ", y + 1));
+            result.push_str(&format!("{:2} ", self.size - y));
             for x in 0..self.size {
                 let pt = Point { x, y };
                 // 判断last_move
                 if let Some(mv_pt) = last_move.point {
                     if pt == mv_pt {
-                        result.push('∆');
+                        result.push('*');
                         result.push(' ');
                         continue;
                     }
@@ -93,24 +86,43 @@ impl Board {
                 result.push_str(ch);
                 result.push(' ');
             }
-            result.push_str(&format!(" {}\n", y + 1));
+            result.push_str(&format!(" {}\n", self.size - y));
         }
-
-        // 底部坐标
-        result.push_str("   ");
-        for x in 0..self.size {
-            let c = if x >= 8 {
-                (b'A' + x + 1) as char
-            } else {
-                (b'A' + x) as char
-            };
-            result.push(c);
-            result.push(' ');
-        }
+        self.write_coord(&mut result);
         // 记录最后一手棋
         if last_move.point.is_some() {
-            result.push_str(&format!("\nLast move: {}\n", last_move));
+            result.push_str(&format!(
+                "\nLast move: {}\n",
+                last_move.to_string_gtp(self.size)
+            ));
         }
+        result
+    }
+
+    /// 可视化棋盘（文本格式），标记会覆盖棋子
+    pub fn to_string_with_labels(&self, labels: Vec<Point>) -> String {
+        let mut result = String::new();
+        self.write_coord(&mut result);
+        // 棋盘内容
+        for y in 0..self.size {
+            result.push_str(&format!("{:2} ", self.size - y));
+            for x in 0..self.size {
+                let pt = Point { x, y };
+                let ch = if labels.contains(&pt) {
+                    "∆"
+                } else {
+                    match self.get(pt) {
+                        Some(Color::Black) => "●",
+                        Some(Color::White) => "○",
+                        None => "+",
+                    }
+                };
+                result.push_str(ch);
+                result.push(' ');
+            }
+            result.push_str(&format!(" {}\n", self.size - y));
+        }
+        self.write_coord(&mut result);
         result
     }
 
@@ -156,7 +168,7 @@ impl Board {
     }
 
     /// 获取连通块 (相同颜色的相邻棋子)，必须完全连通
-    pub fn get_group(&self, pt: Point) -> HashSet<Point> {
+    pub fn get_block(&self, pt: Point) -> HashSet<Point> {
         let color = match self.get(pt) {
             Some(c) => c,
             None => return HashSet::new(),
@@ -184,9 +196,9 @@ impl Board {
     }
 
     /// 计算连通块的气点
-    pub fn count_liberties(&self, group: &HashSet<Point>) -> HashSet<Point> {
+    pub fn count_liberties(&self, block: &HashSet<Point>) -> HashSet<Point> {
         let mut liberties = HashSet::new();
-        for &pt in group {
+        for &pt in block {
             for nb in self.neighbors(pt) {
                 if self.get(nb).is_none() {
                     liberties.insert(nb);
@@ -197,20 +209,19 @@ impl Board {
     }
 
     /// 同时收集连通块和气数，返回 (连通块, 气点集合)
-    /// 注意：调用此方法前应先检查 pt 是否有棋子，否则返回的连通块会是空的，气数也会是0。
-    pub fn collect_group_and_liberties(&self, pt: Point) -> (HashSet<Point>, HashSet<Point>) {
+    pub fn collect_block_and_liberties(&self, pt: Point) -> (HashSet<Point>, HashSet<Point>) {
         let color = self.get(pt).unwrap();
-        let mut group = HashSet::new();
+        let mut block = HashSet::new();
         let mut liberties = HashSet::new();
         let mut queue = VecDeque::new();
-        group.insert(pt);
+        block.insert(pt);
         queue.push_back(pt);
 
         while let Some(p) = queue.pop_front() {
             for nb in self.neighbors(p) {
                 match self.get(nb) {
-                    Some(c) if c == color && !group.contains(&nb) => {
-                        group.insert(nb);
+                    Some(c) if c == color && !block.contains(&nb) => {
+                        block.insert(nb);
                         queue.push_back(nb);
                     }
                     None => {
@@ -220,7 +231,7 @@ impl Board {
                 }
             }
         }
-        (group, liberties)
+        (block, liberties)
     }
 
     /// 获取所有连通块，返回(颜色，连通块)
@@ -232,7 +243,7 @@ impl Board {
                 let pt = Point { x, y };
                 if let Some(color) = self.get(pt) {
                     if !visited.contains(&pt) {
-                        let block = self.get_group(pt);
+                        let block = self.get_block(pt);
                         visited.extend(block.iter());
                         blocks.push((color, block));
                     }
@@ -242,6 +253,175 @@ impl Board {
         blocks
     }
 
+    /// 获取所有连通块，返回(颜色，连通块，气点)
+    pub fn collect_blocks_and_liberties(&self) -> Vec<(Color, HashSet<Point>, HashSet<Point>)> {
+        let mut visited: HashSet<Point> = HashSet::new();
+        let mut blocks = Vec::new();
+        for x in 0..self.size {
+            for y in 0..self.size {
+                let pt = Point { x, y };
+                if let Some(color) = self.get(pt) {
+                    if !visited.contains(&pt) {
+                        let (block, liberties) = self.collect_block_and_liberties(pt);
+                        visited.extend(block.iter());
+                        blocks.push((color, block, liberties));
+                    }
+                }
+            }
+        }
+        blocks
+    }
+
+    /// 将同色连通块合并成群（基于共享气）
+    pub fn merge_blocks_into_groups(&self) -> Vec<GroupSet> {
+        let blocks = self.all_blocks();
+        let n = blocks.len();
+        if n == 0 {
+            return vec![];
+        }
+
+        // 并查集
+        let mut parent = (0..n).collect::<Vec<_>>();
+        fn find(parent: &mut Vec<usize>, x: usize) -> usize {
+            if parent[x] != x {
+                parent[x] = find(parent, parent[x]);
+            }
+            parent[x]
+        }
+        fn union(parent: &mut Vec<usize>, a: usize, b: usize) {
+            let ra = find(parent, a);
+            let rb = find(parent, b);
+            if ra != rb {
+                parent[rb] = ra;
+            }
+        }
+
+        // 遍历所有空点，收集邻接的同色块，合并它们
+        for x in 0..self.size {
+            for y in 0..self.size {
+                let pt = Point { x, y };
+                if self.get(pt).is_some() {
+                    continue;
+                }
+
+                // 收集该空点邻接的所有同色块索引
+                let mut adj_blocks = Vec::new();
+                let mut first_color = None;
+                for (idx, (color, block)) in blocks.iter().enumerate() {
+                    if block.iter().any(|&p| self.neighbors(p).contains(&pt)) {
+                        match first_color {
+                            None => {
+                                // 记录第一个块的颜色
+                                first_color = Some(*color);
+                                adj_blocks.push(idx);
+                            }
+                            Some(c) if c == *color => {
+                                // 同色才加入
+                                adj_blocks.push(idx);
+                            }
+                            _ => {} // 不同色直接跳过
+                        }
+                    }
+                }
+                // 合并这些块,只有同色块数量≥2时才合并
+                if adj_blocks.len() > 1 {
+                    let first = adj_blocks[0];
+                    for &other in &adj_blocks[1..] {
+                        union(&mut parent, first, other);
+                    }
+                }
+            }
+        }
+        // 聚合合并后的群
+        let mut groups: HashMap<usize, GroupSet> = HashMap::new();
+        for (idx, (color, block)) in blocks.into_iter().enumerate() {
+            let root = find(&mut parent, idx);
+            let entry = groups.entry(root).or_insert_with(|| GroupSet {
+                color,
+                points: HashSet::new(),
+                liberties: HashSet::new(),
+            });
+            entry.points.extend(block);
+        }
+
+        // 重新计算每个群的 liberties（所有块的气的并集）
+        for group in groups.values_mut() {
+            let mut libs = HashSet::new();
+            for &pt in &group.points {
+                for nb in self.neighbors(pt) {
+                    if self.get(nb).is_none() {
+                        libs.insert(nb);
+                    }
+                }
+            }
+            group.liberties = libs;
+        }
+        groups.into_values().collect()
+    }
+
+    /// 找出所有连通空区域（包括外部区域）
+    pub fn find_empty_regions(&self) -> Vec<EmptyRegion> {
+        let mut visited = HashSet::new();
+        let mut regions = Vec::new();
+
+        for x in 0..self.size {
+            for y in 0..self.size {
+                let pt = Point { x, y };
+                if self.get(pt).is_some() || visited.contains(&pt) {
+                    continue;
+                }
+
+                // BFS 收集连通空点
+                let mut queue = VecDeque::new();
+                let mut region_points = HashSet::new();
+                let mut border_colors = HashSet::new();
+                let mut touches_edge = false;
+
+                queue.push_back(pt);
+                visited.insert(pt);
+                region_points.insert(pt);
+
+                while let Some(p) = queue.pop_front() {
+                    // 检查是否触及边界
+                    if p.x == 0 || p.x == self.size - 1 || p.y == 0 || p.y == self.size - 1 {
+                        touches_edge = true;
+                    }
+
+                    for nb in self.neighbors(p) {
+                        match self.get(nb) {
+                            None => {
+                                if !visited.contains(&nb) {
+                                    visited.insert(nb);
+                                    region_points.insert(nb);
+                                    queue.push_back(nb);
+                                }
+                            }
+                            Some(c) => {
+                                border_colors.insert(c);
+                            }
+                        }
+                    }
+                }
+
+                regions.push(EmptyRegion {
+                    points: region_points,
+                    border_colors,
+                    touches_edge,
+                });
+            }
+        }
+
+        regions
+    }
+
+    /// 仅获取完全被棋子包围的内部空区域（不接触边界）
+    pub fn find_internal_empty_regions(&self) -> Vec<EmptyRegion> {
+        self.find_empty_regions()
+            .into_iter()
+            .filter(|r| !r.touches_edge)
+            .collect()
+    }
+
     /// 移除因落子而死的棋子 (返回被移除的棋子列表)
     pub fn remove_dead_groups(&mut self, mv: &Move) -> Vec<Point> {
         let mut removed = Vec::new();
@@ -249,7 +429,7 @@ impl Board {
 
         for nb in self.neighbors(mv.point.unwrap()) {
             if self.get(nb) == Some(opponent) {
-                let group = self.get_group(nb);
+                let group = self.get_block(nb);
                 if self.count_liberties(&group).len() == 0 {
                     for &p in &group {
                         self.remove(p);
@@ -363,7 +543,7 @@ impl Board {
     /// 分析连通块的眼位和死活状态
     pub fn analyze_group(&self, pt: Point) -> Option<EyeAnalysis> {
         let color = self.get(pt)?;
-        let group = self.get_group(pt);
+        let group = self.get_block(pt);
 
         if group.is_empty() {
             return None;
@@ -485,11 +665,11 @@ impl Board {
             // 模拟对方落子
             let mut temp = self.clone();
             temp.set(lib, opponent);
-            let opp_group = temp.get_group(lib);
+            let opp_group = temp.get_block(lib);
             if temp.count_liberties(&opp_group).len() == 0 {
                 // 对方落子自杀，检查我方
                 temp.set(lib, color); // 恢复后模拟我方
-                let my_group = temp.get_group(lib);
+                let my_group = temp.get_block(lib);
                 if temp.count_liberties(&my_group).len() == 0 {
                     return true; // 双活
                 }
@@ -525,7 +705,7 @@ impl Board {
         let mut captured = false;
         for nb in temp_board.neighbors(pt) {
             if temp_board.get(nb) == Some(opponent) {
-                let group = temp_board.get_group(nb);
+                let group = temp_board.get_block(nb);
                 if temp_board.count_liberties(&group).len() == 0 {
                     captured = true;
                     break;
@@ -534,7 +714,7 @@ impl Board {
         }
 
         // 4. 检查自己的气
-        let my_group = temp_board.get_group(pt);
+        let my_group = temp_board.get_block(pt);
         let my_liberties = temp_board.count_liberties(&my_group);
 
         // 5. 合法性判断
@@ -594,7 +774,7 @@ impl Board {
 
         // 3. 计算劫点 (简单劫：提单子且自己被提后也是单子)
         let new_ko = if captured.len() == 1 {
-            let my_group = self.get_group(pt);
+            let my_group = self.get_block(pt);
             if my_group.len() == 1 && self.count_liberties(&my_group).len() == 1 {
                 Some(captured[0]) // 被提的位置是潜在的劫点
             } else {
@@ -664,31 +844,34 @@ impl Board {
         // 加上活棋数量
         territory + self.count_stones(color)
     }
-}
 
-impl Display for Board {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let mut result = String::new();
-
-        // 顶部坐标
-        result.push_str("   ");
+    /// 打印横坐标ABCD..
+    fn write_coord(&self, s: &mut String) {
+        s.push_str("   ");
         for x in 0..self.size {
             let c = if x >= 8 {
                 (b'A' + x + 1) as char
             } else {
                 (b'A' + x) as char
             };
-            result.push(c);
-            result.push(' ');
+            s.push(c);
+            s.push(' ');
         }
-        result.push('\n');
+        s.push('\n');
+    }
+}
+
+impl Display for Board {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let mut result = String::new();
+        self.write_coord(&mut result);
 
         // 棋盘内容
-        let size = self.size as usize;
-        for y in 0..size {
-            result.push_str(&format!("{:2} ", y + 1));
-            for x in 0..size {
-                let ch = match self.grid[y][x] {
+        for y in 0..self.size {
+            result.push_str(&format!("{:2} ", self.size - y));
+            for x in 0..self.size {
+                let pt = Point { x, y };
+                let ch = match self.get(pt) {
                     Some(Color::Black) => "●",
                     Some(Color::White) => "○",
                     None => "+",
@@ -696,20 +879,9 @@ impl Display for Board {
                 result.push_str(ch);
                 result.push(' ');
             }
-            result.push_str(&format!(" {}\n", y + 1));
+            result.push_str(&format!(" {}\n", self.size - y));
         }
-
-        // 底部坐标
-        result.push_str("   ");
-        for x in 0..self.size {
-            let c = if x >= 8 {
-                (b'A' + x + 1) as char
-            } else {
-                (b'A' + x) as char
-            };
-            result.push(c);
-            result.push(' ');
-        }
+        self.write_coord(&mut result);
         write!(f, "{}", result)
     }
 }

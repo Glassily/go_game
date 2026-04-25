@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::fmt::{Display};
 
 use crate::model::{Color, Point};
 
@@ -33,12 +33,19 @@ impl Move {
     pub fn is_pass(&self) -> bool {
         self.point.is_none()
     }
+
+    pub fn to_string_gtp(&self, board_size: u8) -> String {
+        match self.point {
+            Some(pt) => format!("{}@{}", self.color, pt.to_gtp(board_size)),
+            None => format!("{}:pass", self.color),
+        }
+    }
 }
 
 impl Display for Move {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.point {
-            Some(pt) => write!(f, "{}@{}", self.color, pt.to_gtp_coord()),
+            Some(pt) => write!(f, "{}@{}", self.color, pt),
             None => write!(f, "{}:pass", self.color),
         }
     }

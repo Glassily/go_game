@@ -3,44 +3,7 @@ use std::fmt::{self, Write};
 use crate::game::record::{GameRecord, NodeProperties};
 use crate::model::{Color, Move, Point};
 
-/// SGF 解析错误类型
-#[derive(Debug)]
-pub enum SgfError {
-    /// 输入提前结束
-    Eof,
-    /// 无效字符
-    InvalidChar(char, usize),
-    /// 属性值未正确闭合
-    UnterminatedValue(usize),
-    /// 坐标解析失败
-    InvalidCoord(String, usize),
-    /// 树结构不合法（如括号不匹配）
-    InvalidTreeStructure(usize),
-    /// 其他解析错误
-    ParseError(String),
-}
-
-impl fmt::Display for SgfError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            SgfError::Eof => write!(f, "Unexpected end of input"),
-            SgfError::InvalidChar(c, pos) => write!(f, "Invalid character '{}' at pos {}", c, pos),
-            SgfError::UnterminatedValue(pos) => {
-                write!(f, "Unterminated property value at pos {}", pos)
-            }
-            SgfError::InvalidCoord(s, pos) => {
-                write!(f, "Invalid coordinate '{}' at pos {}", s, pos)
-            }
-            SgfError::InvalidTreeStructure(pos) => {
-                write!(f, "Invalid tree structure at pos {}", pos)
-            }
-            SgfError::ParseError(msg) => write!(f, "Parse error: {}", msg),
-        }
-    }
-}
-
-impl std::error::Error for SgfError {}
-
+/// sgf解析器
 #[derive(Debug)]
 pub struct SgfParser {
     input: Vec<char>,
@@ -107,11 +70,11 @@ impl SgfParser {
                     // 如果新节点属性没有移动数据，认为是元数据，合并进根节点
                     let is_root = move_data == None;
 
-                    println!();
-                    println!("move_data: {:?}", move_data);
-                    println!("node_props: {:?}", node_props);
-                    println!("root_node: {:?}", self.record.tree.nodes[0]);
-                    println!("is_root: {:?}", is_root);
+                    // println!();
+                    // println!("move_data: {:?}", move_data);
+                    // println!("node_props: {:?}", node_props);
+                    // println!("root_node: {:?}", self.record.tree.nodes[0]);
+                    // println!("is_root: {:?}", is_root);
 
                     if is_root {
                         self.merge_root_props(&node_props);
@@ -142,7 +105,7 @@ impl SgfParser {
                 ')' => break,
                 _ => return Err(SgfError::InvalidChar(self.input[self.pos], self.pos)),
             }
-            println!("record: {:?}", self.record.tree.nodes);
+            // println!("record: {:?}", self.record.tree.nodes);
         }
         Ok(())
     }
@@ -255,7 +218,7 @@ impl SgfParser {
                         .unwrap_or("19");
                     self.board_size = s.parse().unwrap_or(19);
                     self.record.info.board_size = self.board_size;
-                    println!("board_size: {}", self.board_size);
+                    // println!("board_size: {}", self.board_size);
                     break;
                 }
             }
@@ -397,6 +360,44 @@ impl SgfParser {
         }
     }
 }
+
+/// SGF 解析错误类型
+#[derive(Debug)]
+pub enum SgfError {
+    /// 输入提前结束
+    Eof,
+    /// 无效字符
+    InvalidChar(char, usize),
+    /// 属性值未正确闭合
+    UnterminatedValue(usize),
+    /// 坐标解析失败
+    InvalidCoord(String, usize),
+    /// 树结构不合法（如括号不匹配）
+    InvalidTreeStructure(usize),
+    /// 其他解析错误
+    ParseError(String),
+}
+
+impl fmt::Display for SgfError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SgfError::Eof => write!(f, "Unexpected end of input"),
+            SgfError::InvalidChar(c, pos) => write!(f, "Invalid character '{}' at pos {}", c, pos),
+            SgfError::UnterminatedValue(pos) => {
+                write!(f, "Unterminated property value at pos {}", pos)
+            }
+            SgfError::InvalidCoord(s, pos) => {
+                write!(f, "Invalid coordinate '{}' at pos {}", s, pos)
+            }
+            SgfError::InvalidTreeStructure(pos) => {
+                write!(f, "Invalid tree structure at pos {}", pos)
+            }
+            SgfError::ParseError(msg) => write!(f, "Parse error: {}", msg),
+        }
+    }
+}
+
+impl std::error::Error for SgfError {}
 
 // 验证/导出逻辑
 
@@ -785,7 +786,7 @@ fn escape_sgf(s: &str) -> String {
 #[cfg(test)]
 mod tests {
 
-    use crate::{game::record::GameTree, model::Board};
+    use crate::{game::record::GameTree};
 
     use super::*;
 
@@ -804,14 +805,12 @@ mod tests {
         assert_eq!(record.info.board_size, 9);
         let w_bb_idx = record.tree.root_index + 2;
         assert_eq!(record.tree.node(w_bb_idx).unwrap().children.len(), 2);
-        let stones = record.current_board();
-        let board = Board::from_setup(9, &stones);
+        let board = record.current_board();
         println!("{}", board);
 
         let (idx, _) = record.current_children().next().unwrap();
         record.move_to_child(idx);
-        let stones = record.current_board();
-        let board = Board::from_setup(9, &stones);
+        let board = record.current_board();
         println!("{}", board);
     }
 
@@ -858,5 +857,17 @@ mod tests {
         let record2 = SgfParser::new(&exported).parse().unwrap();
         assert_eq!(record.info.komi, record2.info.komi);
         assert_eq!(record.tree.nodes.len(), record2.tree.nodes.len());
+    }
+
+    #[test]
+    fn test_real_sgf_pase() {
+        let sgf = "(;GM[1]FF[4]  SZ[19]  GN[]  DT[2013-07-09]  PB[飞花�?水�?]  PW[�?�身情歌]  BR[9段]  WR[9段]  KM[0]HA[0]RU[Japanese]AP[GNU Go:3.8]RE[W+R]TM[60]TC[3]TT[15]  ;B[dq];W[pd];B[qp];W[cd];B[cl];W[op];B[oq];W[nq];B[pq];W[gq];B[iq];W[dp];B[cp];W[cq];B[eq];W[ip];B[jp];W[co];B[bp];W[ep];B[cr];W[io];B[fp];W[jq];B[en];W[np];B[qn];W[dm];B[do];W[kq];B[nc];W[lc];B[ic];W[nd];B[ec];W[oc];B[dg];W[de];B[cb];W[ci];B[eh];W[fe];B[gc];W[bg];B[cf];W[bf];B[ce];W[be];B[dd];W[cc];B[dc];W[bb];B[qg];W[qi];B[rd];W[qd];B[of];W[re];B[rf];W[qe];B[oh];W[pp];B[po];W[ql];B[nr];W[mr];B[pj];W[qj];B[pk];W[ro];B[qo];W[rn];B[rp];W[qm];B[or];W[qr];B[rr];W[dl];B[gg];W[hd];B[jb];W[je];B[kd];W[ng];B[lf];W[ig];B[og];W[ii];B[hf];W[he];B[if];W[jf];B[ie];W[id];B[jd];W[gf];B[hg];W[fg];B[gi];W[fh];B[hi];W[fi];B[ij];W[df];B[in];W[nf];B[lh];W[jj];B[ik];W[nh];B[nj];W[jk];B[ih];W[le];B[ke];W[lg];B[kf];W[kh];B[ne];W[oe];B[me];W[md];B[mf];W[li];B[ji];W[mk];B[om];W[nk];B[ok];W[rh];B[nl];W[mj];B[hq];W[gp];B[gr];W[qq];B[rq];W[ns];B[qs];W[fr];B[hp];W[ho];B[go];W[fq];B[jo];W[hn];B[gn];W[hm];B[fs];W[fo];B[er];W[kn];B[se];W[ni];B[oi];W[rc];B[dk];W[jl];B[cj];W[gm];B[fn];W[on];B[pm];W[pn];B[ml];W[nn];B[lk];W[lj])";
+        let record = SgfParser::new(sgf).parse().unwrap();
+        for i in &record.current_path {
+            print!("{} ",i);
+        }
+        println!();
+        let board = record.current_board();
+        println!("{}",board);
     }
 }

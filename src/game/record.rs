@@ -1,6 +1,6 @@
 use std::{collections::HashMap, usize};
 
-use crate::model::{Color, Move, Point};
+use crate::model::{Board, Color, Move, Point};
 
 /// 节点属性 (对应 SGF 的 C, LB, AB, AW, 自定义属性等)
 #[derive(Debug, Clone, Default)]
@@ -201,8 +201,8 @@ impl GameRecord {
     }
 
     /// 获取当前棋盘状态
-    pub fn current_board(&self) -> Vec<(Point, Color)> {
-        let mut board = Vec::new();
+    pub fn current_board(&self) -> Board {
+        let mut setup = Vec::new();
         for node_idx in self
             .tree
             .path_to_root(*self.current_path.last().unwrap_or(&0))
@@ -210,15 +210,16 @@ impl GameRecord {
             if let Some(node) = self.tree.node(node_idx) {
                 if let Some(Move { point, color }) = &node.move_data {
                     if let Some(p) = point {
-                        board.push((*p, *color));
+                        setup.push((*p, *color));
                     }
                 }
                 for (pt, color) in &node.props.setup {
-                    board.push((*pt, *color));
+                    setup.push((*pt, *color));
                 }
             }
         }
-        board
+        //setup
+        Board::from_setup(self.info.board_size, setup)
     }
 
     /// 获取当前应落子颜色（根据已有着法推断）
@@ -339,6 +340,8 @@ impl GameRecord {
             false
         }
     }
+
+    
 }
 
 impl Default for GameRecord {

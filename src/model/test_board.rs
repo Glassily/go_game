@@ -2,7 +2,7 @@
 mod tests {
     use std::collections::HashSet;
 
-    use crate::model::*;
+    use crate::{game::sgf::SgfParser, model::*};
 
     #[test]
     fn test_setup_board() {
@@ -109,22 +109,22 @@ mod tests {
 
     /// 测试连通块
     #[test]
-    fn test_get_group() {
+    fn test_get_block() {
         let mut board = Board::new(5);
         // 创建一个简单的连通块
         board.set(Point { x: 1, y: 1 }, Color::Black);
         board.set(Point { x: 1, y: 2 }, Color::Black);
         board.set(Point { x: 2, y: 1 }, Color::Black);
 
-        let group = board.get_group(Point { x: 1, y: 1 });
+        let block = board.get_block(Point { x: 1, y: 1 });
         let expected = vec![
             Point { x: 1, y: 1 },
             Point { x: 1, y: 2 },
             Point { x: 2, y: 1 },
         ];
-        assert_eq!(group.len(), expected.len());
+        assert_eq!(block.len(), expected.len());
         for pt in expected {
-            assert!(group.contains(&pt));
+            assert!(block.contains(&pt));
         }
     }
 
@@ -172,19 +172,19 @@ mod tests {
         let board = Board::new(5);
         // 单个棋子有 4 口气
         let pt = Point { x: 2, y: 2 };
-        let group = board.get_group(pt); // 空位置返回空集合
+        let group = board.get_block(pt); // 空位置返回空集合
         assert!(group.is_empty());
 
         // 放置棋子后测试
         let mut board = Board::new(5);
         board.set(pt, Color::Black);
-        let group = board.get_group(pt);
+        let group = board.get_block(pt);
         assert_eq!(group.len(), 1);
         assert_eq!(board.count_liberties(&group).len(), 4);
 
         // 连接后气数减少
         board.set(Point { x: 2, y: 3 }, Color::Black);
-        let group = board.get_group(pt);
+        let group = board.get_block(pt);
         assert_eq!(group.len(), 2);
         assert_eq!(board.count_liberties(&group).len(), 6); // 2*4 - 2(共享边) = 6
     }
@@ -270,9 +270,8 @@ mod tests {
         assert_eq!(eye_type, Some(EyeType::False));
     }
 
-    /// 测试块群
-    #[test]
-    fn test_all_group() {
+    /// 生成一个测试用棋盘，用于测试棋块
+    fn generate_board() -> Board {
         let mut board = Board::new(5);
         board.set(Point { x: 1, y: 0 }, Color::Black);
         board.set(Point { x: 0, y: 1 }, Color::Black);
@@ -284,11 +283,78 @@ mod tests {
         board.set(Point { x: 3, y: 1 }, Color::White);
         board.set(Point { x: 3, y: 0 }, Color::White);
         println!("Initial board:\n{}\n", board);
+        board
+    }
+
+    /// 测试块群
+    #[test]
+    fn test_group() {
+        let board = generate_board();
         let a = board.all_blocks();
         println!("{:?}", a);
         let mut pt = HashSet::new();
         pt.insert(Point { x: 0, y: 1 });
         assert!(a.contains(&(Color::Black, pt)));
         assert_eq!(a.len(), 5);
+
+        let a = board.collect_blocks_and_liberties();
+        println!("{:?}", a);
+        let mut pt = HashSet::new();
+        pt.insert(Point { x: 0, y: 1 }); //A2
+        let mut libs = HashSet::new();
+        libs.insert(Point { x: 0, y: 0 }); //A1
+        libs.insert(Point { x: 1, y: 1 }); //B2
+        libs.insert(Point { x: 0, y: 2 }); //A3
+        assert!(a.contains(&(Color::Black, pt, libs)));
     }
+
+    #[test]
+    fn test_merge_blocks() {
+        let board = generate_board();
+        let groups = board.merge_blocks_into_groups();
+        for group in groups {
+            println!("{}", group);
+        }
+    }
+
+    #[test]
+    fn test_empty_region() {
+        let board = generate_board();
+        let empty_regions = board.find_empty_regions();
+        for region in &empty_regions {
+            println!("{}", region);
+        }
+        assert_eq!(empty_regions.len(), 3);
+
+        let empty_regions = board.find_internal_empty_regions();
+        for region in &empty_regions {
+            println!("{}", region);
+        }
+        assert_eq!(empty_regions.len(), 1);
+    }
+
+    #[test]
+    fn test_real_board(){
+        let sgf = "(;GM[1]FF[4]  SZ[19]  GN[]  DT[2013-07-09]  PB[飞花�?水�?]  PW[�?�身情歌]  BR[9段]  WR[9段]  KM[0]HA[0]RU[Japanese]AP[GNU Go:3.8]RE[W+R]TM[60]TC[3]TT[15]  ;B[dq];W[pd];B[qp];W[cd];B[cl];W[op];B[oq];W[nq];B[pq];W[gq];B[iq];W[dp];B[cp];W[cq];B[eq];W[ip];B[jp];W[co];B[bp];W[ep];B[cr];W[io];B[fp];W[jq];B[en];W[np];B[qn];W[dm];B[do];W[kq];B[nc];W[lc];B[ic];W[nd];B[ec];W[oc];B[dg];W[de];B[cb];W[ci];B[eh];W[fe];B[gc];W[bg];B[cf];W[bf];B[ce];W[be];B[dd];W[cc];B[dc];W[bb];B[qg];W[qi];B[rd];W[qd];B[of];W[re];B[rf];W[qe];B[oh];W[pp];B[po];W[ql];B[nr];W[mr];B[pj];W[qj];B[pk];W[ro];B[qo];W[rn];B[rp];W[qm];B[or];W[qr];B[rr];W[dl];B[gg];W[hd];B[jb];W[je];B[kd];W[ng];B[lf];W[ig];B[og];W[ii];B[hf];W[he];B[if];W[jf];B[ie];W[id];B[jd];W[gf];B[hg];W[fg];B[gi];W[fh];B[hi];W[fi];B[ij];W[df];B[in];W[nf];B[lh];W[jj];B[ik];W[nh];B[nj];W[jk];B[ih];W[le];B[ke];W[lg];B[kf];W[kh];B[ne];W[oe];B[me];W[md];B[mf];W[li];B[ji];W[mk];B[om];W[nk];B[ok];W[rh];B[nl];W[mj];B[hq];W[gp];B[gr];W[qq];B[rq];W[ns];B[qs];W[fr];B[hp];W[ho];B[go];W[fq];B[jo];W[hn];B[gn];W[hm];B[fs];W[fo];B[er];W[kn];B[se];W[ni];B[oi];W[rc];B[dk];W[jl];B[cj];W[gm];B[fn];W[on];B[pm];W[pn];B[ml];W[nn];B[lk];W[lj])";
+        let record = SgfParser::new(sgf).parse().unwrap();
+        let board = record.current_board();
+        println!("{}",board);
+
+        let groups = board.merge_blocks_into_groups();
+        for group in groups {
+            println!("{}", group.to_string_gtp(board.size));
+        }
+
+        let empty_regions = board.find_empty_regions();
+        for region in &empty_regions {
+            println!("{}", region.to_string_gtp(board.size));
+        }
+
+        let empty_regions = board.find_internal_empty_regions();
+        for region in &empty_regions {
+            println!("{}", region.to_string_gtp(board.size));
+        }
+        
+    }
+
 }

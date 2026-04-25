@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 /// 棋子颜色
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Color {
     /// 黑子 ●
     Black,
