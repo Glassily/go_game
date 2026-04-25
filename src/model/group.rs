@@ -6,7 +6,7 @@ use std::{
 use crate::model::{Color, Point};
 
 /// 块群（由多个同色连通块通过共享气连接而成）
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq)]
 pub struct GroupSet {
     /// 块群的颜色
     pub color: Color,
@@ -17,7 +17,7 @@ pub struct GroupSet {
 }
 
 /// 空区域（连通空点集）
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq)]
 pub struct EmptyRegion {
     /// 区域内的空点
     pub points: HashSet<Point>,
@@ -25,6 +25,21 @@ pub struct EmptyRegion {
     pub border_colors: HashSet<Color>,
     /// 是否接触棋盘边界
     pub touches_edge: bool,
+}
+
+/// 棋子状态（用于死活分析）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GroupStatus {
+    /// 活棋：两只或以上真眼
+    Alive,
+    /// 死棋：无法做出两只眼
+    Dead,
+    /// 双活：双方共享气，互不能吃
+    Seki,
+    /// 未定：需要进一步分析
+    Uncertain,
+    /// 劫活/劫杀：依赖劫争结果
+    Ko,
 }
 
 impl GroupSet {
@@ -50,7 +65,6 @@ impl GroupSet {
         )
     }
 }
-
 
 impl EmptyRegion {
     pub fn to_string_gtp(&self, board_size: u8) -> String {
@@ -78,15 +92,11 @@ impl PartialEq for GroupSet {
     }
 }
 
-impl Eq for GroupSet {}
-
 impl PartialEq for EmptyRegion {
     fn eq(&self, other: &Self) -> bool {
         self.points == other.points
     }
 }
-
-impl Eq for EmptyRegion {}
 
 impl Display for GroupSet {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

@@ -200,6 +200,11 @@ impl GameRecord {
             .and_then(|&idx| self.tree.node_mut(idx))
     }
 
+    /// 移除当前节点及子树
+    pub fn remove_current_node(&mut self) -> bool {
+        todo!()
+    }
+
     /// 获取当前棋盘状态
     pub fn current_board(&self) -> Board {
         let mut setup = Vec::new();
@@ -340,8 +345,6 @@ impl GameRecord {
             false
         }
     }
-
-    
 }
 
 impl Default for GameRecord {

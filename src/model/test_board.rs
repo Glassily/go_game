@@ -22,7 +22,7 @@ mod tests {
         assert!(board.is_empty(Point { x: 2, y: 2 }));
         board.set(Point { x: 2, y: 2 }, Color::Black);
         board.set(Point { x: 1, y: 2 }, Color::White);
-        println!("{}", board);
+        println!("{}", board.to_string_gtp());
         assert_eq!(board.get(Point { x: 2, y: 2 }), Some(Color::Black));
         assert_eq!(board.get(Point { x: 1, y: 2 }), Some(Color::White));
         board.remove(Point { x: 2, y: 2 });
@@ -172,8 +172,8 @@ mod tests {
         let board = Board::new(5);
         // 单个棋子有 4 口气
         let pt = Point { x: 2, y: 2 };
-        let group = board.get_block(pt); // 空位置返回空集合
-        assert!(group.is_empty());
+        let block = board.get_block(pt); // 空位置返回空集合
+        assert!(block.is_empty());
 
         // 放置棋子后测试
         let mut board = Board::new(5);
@@ -201,7 +201,7 @@ mod tests {
         board.set(Point { x: 2, y: 0 }, Color::White);
         board.set(Point { x: 2, y: 2 }, Color::White);
         board.set(Point { x: 3, y: 1 }, Color::White);
-        println!("Initial board:\n{}\n", board);
+        println!("Initial board:\n{}\n", board.to_string_gtp());
 
         // 白提黑一子
         let mv_white = Move::new(Color::White, Point { x: 1, y: 1 }, 5).unwrap();
@@ -217,7 +217,7 @@ mod tests {
         assert!(!board.is_legal(&mv_black, ko_point, false));
         let res = board.apply_move(&mv_black, ko_point, false);
         assert!(res.is_none()); //黑应该不能立即回提（劫）
-        println!("棋盘应该没有变化：\n{}\n", board);
+        println!("棋盘应该没有变化：\n{}\n", board.to_string_gtp());
 
         // 黑先走其他位置,白应一手棋
         let mv_black_other = Move::new(Color::Black, Point { x: 0, y: 0 }, 5).unwrap();
@@ -249,6 +249,7 @@ mod tests {
         board.set(Point { x: 1, y: 2 }, Color::Black);
         board.set(Point { x: 2, y: 1 }, Color::Black);
         board.set(Point { x: 2, y: 2 }, Color::Black);
+        board.set(Point { x: 0, y: 2 }, Color::Black);
         // 边上的空点（2,0）
         board.set(Point { x: 3, y: 0 }, Color::Black);
         board.set(Point { x: 3, y: 1 }, Color::White);
@@ -257,12 +258,14 @@ mod tests {
         let eye2 = Point { x: 1, y: 1 };
         let eye3 = Point { x: 2, y: 0 };
 
+        println!("{}", board.to_string_with_labels(vec![eye1, eye2, eye3]));
+
         // 中间的空点是一个真眼
-        let eye_type = board.analyze_eye(eye3, Color::Black);
+        let eye_type = board.analyze_eye(eye2, Color::Black);
         assert_eq!(eye_type, Some(EyeType::Real)); //判断错误，需要结合多个块判断
 
         // 边上的空点是假眼
-        let eye_type = board.analyze_eye(eye2, Color::Black);
+        let eye_type = board.analyze_eye(eye3, Color::Black);
         assert_eq!(eye_type, Some(EyeType::Real));
 
         // 角落的空点是真眼
@@ -282,7 +285,7 @@ mod tests {
         board.set(Point { x: 2, y: 2 }, Color::White);
         board.set(Point { x: 3, y: 1 }, Color::White);
         board.set(Point { x: 3, y: 0 }, Color::White);
-        println!("Initial board:\n{}\n", board);
+        println!("Initial board:\n{}\n", board.to_string_gtp());
         board
     }
 
@@ -313,7 +316,7 @@ mod tests {
         let board = generate_board();
         let groups = board.merge_blocks_into_groups();
         for group in groups {
-            println!("{}", group);
+            println!("{}", group.to_string_gtp(board.size));
         }
     }
 
@@ -322,23 +325,23 @@ mod tests {
         let board = generate_board();
         let empty_regions = board.find_empty_regions();
         for region in &empty_regions {
-            println!("{}", region);
+            println!("{}", region.to_string_gtp(board.size));
         }
         assert_eq!(empty_regions.len(), 3);
 
         let empty_regions = board.find_internal_empty_regions();
         for region in &empty_regions {
-            println!("{}", region);
+            println!("{}", region.to_string_gtp(board.size));
         }
         assert_eq!(empty_regions.len(), 1);
     }
 
     #[test]
-    fn test_real_board(){
+    fn test_real_board() {
         let sgf = "(;GM[1]FF[4]  SZ[19]  GN[]  DT[2013-07-09]  PB[飞花�?水�?]  PW[�?�身情歌]  BR[9段]  WR[9段]  KM[0]HA[0]RU[Japanese]AP[GNU Go:3.8]RE[W+R]TM[60]TC[3]TT[15]  ;B[dq];W[pd];B[qp];W[cd];B[cl];W[op];B[oq];W[nq];B[pq];W[gq];B[iq];W[dp];B[cp];W[cq];B[eq];W[ip];B[jp];W[co];B[bp];W[ep];B[cr];W[io];B[fp];W[jq];B[en];W[np];B[qn];W[dm];B[do];W[kq];B[nc];W[lc];B[ic];W[nd];B[ec];W[oc];B[dg];W[de];B[cb];W[ci];B[eh];W[fe];B[gc];W[bg];B[cf];W[bf];B[ce];W[be];B[dd];W[cc];B[dc];W[bb];B[qg];W[qi];B[rd];W[qd];B[of];W[re];B[rf];W[qe];B[oh];W[pp];B[po];W[ql];B[nr];W[mr];B[pj];W[qj];B[pk];W[ro];B[qo];W[rn];B[rp];W[qm];B[or];W[qr];B[rr];W[dl];B[gg];W[hd];B[jb];W[je];B[kd];W[ng];B[lf];W[ig];B[og];W[ii];B[hf];W[he];B[if];W[jf];B[ie];W[id];B[jd];W[gf];B[hg];W[fg];B[gi];W[fh];B[hi];W[fi];B[ij];W[df];B[in];W[nf];B[lh];W[jj];B[ik];W[nh];B[nj];W[jk];B[ih];W[le];B[ke];W[lg];B[kf];W[kh];B[ne];W[oe];B[me];W[md];B[mf];W[li];B[ji];W[mk];B[om];W[nk];B[ok];W[rh];B[nl];W[mj];B[hq];W[gp];B[gr];W[qq];B[rq];W[ns];B[qs];W[fr];B[hp];W[ho];B[go];W[fq];B[jo];W[hn];B[gn];W[hm];B[fs];W[fo];B[er];W[kn];B[se];W[ni];B[oi];W[rc];B[dk];W[jl];B[cj];W[gm];B[fn];W[on];B[pm];W[pn];B[ml];W[nn];B[lk];W[lj])";
         let record = SgfParser::new(sgf).parse().unwrap();
         let board = record.current_board();
-        println!("{}",board);
+        println!("{}", board.to_string_gtp());
 
         let groups = board.merge_blocks_into_groups();
         for group in groups {
@@ -354,7 +357,5 @@ mod tests {
         for region in &empty_regions {
             println!("{}", region.to_string_gtp(board.size));
         }
-        
     }
-
 }

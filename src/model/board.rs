@@ -61,6 +61,29 @@ impl Board {
     }
 
     /// 可视化棋盘（文本格式）
+    pub fn to_string_gtp(&self) -> String {
+        let mut result = String::new();
+        self.write_coord(&mut result);
+        // 棋盘内容
+        for y in 0..self.size {
+            result.push_str(&format!("{:2} ", self.size - y));
+            for x in 0..self.size {
+                let pt = Point { x, y };
+                let ch = match self.get(pt) {
+                    Some(Color::Black) => "●",
+                    Some(Color::White) => "○",
+                    None => "+",
+                };
+                result.push_str(ch);
+                result.push(' ');
+            }
+            result.push_str(&format!(" {}\n", self.size - y));
+        }
+        self.write_coord(&mut result);
+        result
+    }
+
+    /// 可视化棋盘（文本格式）
     pub fn to_string_with_move(&self, last_move: Move) -> String {
         let mut result = String::new();
         self.write_coord(&mut result);
@@ -493,6 +516,33 @@ impl Board {
         removed
     }
 
+    /// 分析整个棋盘上所有块群的状态
+    pub fn analyze_all_groups(&self) -> Vec<(GroupSet, GroupStatus)> {
+        let groups = self.merge_blocks_into_groups();
+        let internal_regions = self.find_internal_empty_regions();
+        groups
+            .into_iter()
+            .map(|group| {
+                // 找出该群包围的内部空区域
+                let my_regions: Vec<&EmptyRegion> = internal_regions
+                    .iter()
+                    .filter(|r| {
+                        r.border_colors.len() == 1 && r.border_colors.contains(&group.color)
+                    })
+                    .collect();
+                // 单点真眼简化
+                let real_eyes = my_regions.iter().filter(|r| r.points.len() == 1).count();
+                let status = if real_eyes >= 2 {
+                    GroupStatus::Alive
+                } else {
+                    // 需要更复杂的判断...
+                    GroupStatus::Uncertain
+                };
+                (group, status)
+            })
+            .collect()
+    }
+
     /// 判断某个空点是否为指定颜色的眼
     pub fn analyze_eye(&self, pt: Point, color: Color) -> Option<EyeType> {
         // 1. 必须是空点
@@ -500,7 +550,7 @@ impl Board {
             return None;
         }
 
-        // 2. 检查四邻点：必须都是同色棋子或边界
+        // 2. 检查四邻点：必须都是同色棋子或边界，不能有对方棋子，也不能有空点
         let neighbors = self.neighbors(pt);
         if neighbors.iter().any(|&nb| self.get(nb) != Some(color)) {
             return Some(EyeType::False);
@@ -508,33 +558,26 @@ impl Board {
 
         // 3. 检查对角点（判断真假眼的关键）
         let diagonals = self.diagonals(pt);
-        let mut friendly_corners = 0;
-        let mut enemy_corners = 0;
 
-        for diag in diagonals {
-            match self.get(diag) {
-                Some(c) if c == color => friendly_corners += 1,
-                Some(_) => enemy_corners += 1, // 对方棋子
-                None => {}                     // 空点，不影响
-            }
-        }
+
+
+        // 3. 根据位置（角/边/中央）确定所需对角己方棋子数量
+        let nb_count = neighbors.len(); // 2 角，3 边，4 中央
+        let required_diagonals = match nb_count {
+            2 => 1, // 角部：至少一个对角是己方
+            3 => 2, // 边上：至少两个对角是己方
+            4 => 3, // 中央：至少三个对角是己方
+            _ => return Some(EyeType::False),
+        };
 
         // 4. 判断眼型
-        // 边界上的眼：只需要3个邻点，对角要求降低
-        let is_corner = pt.x == 0 || pt.x == self.size - 1 || pt.y == 0 || pt.y == self.size - 1;
-        let is_edge =
-            is_corner || pt.x == 0 || pt.x == self.size - 1 || pt.y == 0 || pt.y == self.size - 1;
+        let my_diagonals = diagonals
+            .iter()
+            .filter(|&&d| self.get(d) == Some(color))
+            .count();
 
-        if enemy_corners > 0 {
-            Some(EyeType::False)
-        } else if is_corner && friendly_corners >= 1 {
+        if my_diagonals >= required_diagonals {
             Some(EyeType::Real)
-        } else if is_edge && friendly_corners >= 2 {
-            Some(EyeType::Real)
-        } else if !is_edge && friendly_corners >= 3 {
-            Some(EyeType::Real)
-        } else if friendly_corners >= 2 {
-            Some(EyeType::Half)
         } else {
             Some(EyeType::False)
         }
@@ -679,11 +722,6 @@ impl Board {
     }
 
     /// 检查落子合法性
-    ///
-    /// 规则：
-    /// 1. 位置必须在棋盘内且为空
-    /// 2. 落子后必须有气，或能提掉对方棋子
-    /// 3. [可选] 劫规则：不能立即回提单子
     pub fn is_legal(&self, mv: &Move, ko_point: Option<Point>, allow_suicide: bool) -> bool {
         if mv.is_pass() {
             return true; // Pass 总是合法的
@@ -692,7 +730,7 @@ impl Board {
         let pt = mv.point.unwrap();
 
         // 1. 位置必须为空
-        if !self.is_empty(pt) {
+        if !self.get(pt).is_none() {
             return false;
         }
 
@@ -745,10 +783,7 @@ impl Board {
         }
     }
 
-    /// 执行着法
-    ///
-    /// 返回: (是否成功, 被提掉的棋子列表, 新的劫点)
-    /// 如果返回 None 表示着法非法
+    /// 执行着法，返回: (被提掉的棋子, 新的劫点)
     pub fn apply_move(
         &mut self,
         mv: &Move,
@@ -756,6 +791,7 @@ impl Board {
         allow_suicide: bool,
     ) -> Option<(Vec<Point>, Option<Point>)> {
         if !self.is_legal(mv, ko_point, allow_suicide) {
+            // todo:返回错误类型
             return None;
         }
 
@@ -788,8 +824,6 @@ impl Board {
     }
 
     /// 计算指定颜色的棋子数量
-    ///
-    /// 不区分死活，纯粹统计棋盘上存在的棋子数量。
     pub fn count_stones(&self, color: Color) -> usize {
         self.grid
             .iter()
@@ -865,10 +899,9 @@ impl Display for Board {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         let mut result = String::new();
         self.write_coord(&mut result);
-
         // 棋盘内容
         for y in 0..self.size {
-            result.push_str(&format!("{:2} ", self.size - y));
+            result.push_str(&format!("{:2} ", y + 1));
             for x in 0..self.size {
                 let pt = Point { x, y };
                 let ch = match self.get(pt) {
@@ -879,7 +912,7 @@ impl Display for Board {
                 result.push_str(ch);
                 result.push(' ');
             }
-            result.push_str(&format!(" {}\n", self.size - y));
+            result.push_str(&format!(" {}\n", y + 1));
         }
         self.write_coord(&mut result);
         write!(f, "{}", result)
