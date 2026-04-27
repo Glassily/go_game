@@ -614,14 +614,14 @@ fn validate_tree(
 }
 
 impl GameRecord {
-    /// 导出为 SGF 字符串
+    /// 导出为SGF字符串
     pub fn to_sgf(&self) -> String {
         let mut out = String::new();
         self.write_to_sgf(&mut out).unwrap();
         out
     }
 
-    /// 流式写入 SGF（推荐用于大文件或网络传输）
+    /// 流式写入SGF
     pub fn write_to_sgf(&self, f: &mut impl Write) -> Result<(), fmt::Error> {
         write!(f, "(")?;
         self.write_node_sequence(self.tree.root_index, f)?;

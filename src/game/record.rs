@@ -82,48 +82,116 @@ impl GameTree {
         Some(new_idx)
     }
 
-    /// 获取指定节点的子节点迭代器（同时给出索引）
-    pub fn get_children(&self, idx: usize) -> impl Iterator<Item = (usize, &TreeNode)> {
-        self.nodes[idx]
-            .children
-            .iter()
-            .filter_map(|&child_idx| self.node(child_idx).map(|node| (child_idx, node)))
+    /// 删除以idx为根的整棵子树，并更新全部索引。
+    /// 返回旧索引到新索引的映射。若idx无效或是根节点则返回None。
+    pub fn remove_subtree(&mut self, idx: usize) -> Option<HashMap<usize, usize>> {
+        // 不允许删除根节点
+        if idx >= self.nodes.len() || idx == self.root_index {
+            return None;
+        }
+
+        // 1. 收集要删除的索引（BFS）
+        let mut to_delete = vec![idx];
+        let mut i = 0;
+        while i < to_delete.len() {
+            let node_idx = to_delete[i];
+            if let Some(node) = self.nodes.get(node_idx) {
+                to_delete.extend(node.children.iter().copied());
+            }
+            i += 1;
+        }
+        // 转为 HashSet 方便查找
+        let del_set: std::collections::HashSet<usize> = to_delete.into_iter().collect();
+
+        // 2. 从父节点移除该子节点索引
+        if let Some(parent_idx) = self.nodes[idx].parent_index {
+            if let Some(parent) = self.nodes.get_mut(parent_idx) {
+                parent.children.retain(|&c| c != idx);
+            }
+        }
+
+        // 3. 构建新旧映射并压缩 nodes
+        let mut old_to_new = vec![None; self.nodes.len()];
+        let mut new_nodes = Vec::with_capacity(self.nodes.len() - del_set.len());
+
+        for (old_idx, node) in self.nodes.iter().enumerate() {
+            if !del_set.contains(&old_idx) {
+                let new_idx = new_nodes.len();
+                old_to_new[old_idx] = Some(new_idx);
+                new_nodes.push(node.clone());
+            }
+        }
+
+        // 4. 更新保留节点中的索引
+        for node in &mut new_nodes {
+            if let Some(pidx) = node.parent_index {
+                node.parent_index = old_to_new[pidx]; // 若父节点被删则变 None，但父不可能被删（因只删子树）
+            }
+            node.children = node
+                .children
+                .iter()
+                .filter_map(|&c| old_to_new[c])
+                .collect();
+        }
+
+        // 5. 更新根索引（根未被删除，必然存在）
+        self.root_index =
+            old_to_new[self.root_index].expect("root was deleted, but deletion is forbidden");
+
+        self.nodes = new_nodes;
+
+        // 6. 构造并返回映射
+        let map: HashMap<usize, usize> = old_to_new
+            .into_iter()
+            .enumerate()
+            .filter_map(|(old, new)| new.map(|n| (old, n)))
+            .collect();
+        Some(map)
     }
 
-    /// 获取指定节点的父节点
+    /// 获取子节点迭代器，idx无效返回None
+    pub fn get_children(&self, idx: usize) -> Option<impl Iterator<Item = (usize, &TreeNode)>> {
+        let node = self.node(idx)?;
+        Some(
+            node.children
+                .iter()
+                .filter_map(move |&cidx| self.node(cidx).map(|n| (cidx, n)))
+        )
+    }
+
+    /// 获取父节点引用，idx效返回None
     pub fn get_parent(&self, idx: usize) -> Option<&TreeNode> {
-        self.nodes[idx]
-            .parent_index
-            .and_then(|parent_idx| self.node(parent_idx))
+        let parent_idx = self.node(idx)?.parent_index?;
+        self.node(parent_idx)
     }
 
-    /// 获取指定节点的兄弟节点（同时给出索引）
-    pub fn get_siblings(&self, idx: usize) -> impl Iterator<Item = (usize, &TreeNode)> {
-        let parent_idx_opt = self.nodes.get(idx).and_then(|node| node.parent_index);
-        parent_idx_opt.into_iter().flat_map(move |parent_idx| {
+    /// 获取兄弟节点迭代器，idx无效返回None
+    pub fn get_siblings(&self, idx: usize) -> Option<impl Iterator<Item = (usize, &TreeNode)>> {
+        let parent_idx = self.node(idx)?.parent_index?;
+        Some(
             self.nodes[parent_idx]
                 .children
                 .iter()
-                .filter_map(move |&sibling_idx| {
-                    if sibling_idx != idx {
-                        self.node(sibling_idx).map(|node| (sibling_idx, node))
-                    } else {
-                        None
-                    }
-                })
-        })
+                .filter(move |&&sib| sib != idx)
+                .filter_map(|&sib| self.node(sib).map(|n| (sib, n)))
+        )
     }
 
     /// 获取从根节点到指定节点的索引序列
-    pub fn path_to_root(&self, idx: usize) -> Vec<usize> {
+    pub fn path_to_root(&self, idx: usize) -> Option<Vec<usize>> {
         let mut path = Vec::new();
         let mut current_idx = Some(idx);
         while let Some(idx) = current_idx {
             path.push(idx);
-            current_idx = self.nodes[idx].parent_index;
+            current_idx = self.node(idx)?.parent_index;
         }
         path.reverse();
-        path
+        Some(path)
+    }
+
+    /// 从根开始深度优先遍历
+    pub fn iter_depth_first(&self) -> DepthFirstIter<'_> {
+        DepthFirstIter::new(self, self.root_index)
     }
 }
 
@@ -131,6 +199,42 @@ impl Default for GameTree {
     fn default() -> Self {
         // 手动实现 Default，避免 root_index=0 但 nodes 为空的非法状态
         Self::new(NodeProperties::default())
+    }
+}
+
+pub struct DepthFirstIter<'a> {
+    tree: &'a GameTree,
+    stack: Vec<usize>,
+}
+
+impl<'a> DepthFirstIter<'a> {
+    fn new(tree: &'a GameTree, start: usize) -> Self {
+        let mut stack = Vec::new();
+        if tree.node(start).is_some() {
+            stack.push(start);
+        }
+        Self { tree, stack }
+    }
+}
+
+impl<'a> Iterator for DepthFirstIter<'a> {
+    type Item = (usize, &'a TreeNode);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(idx) = self.stack.pop() {
+            if let Some(node) = self.tree.node(idx) {
+                // 逆序压入未删除子节点，保证先子后兄弟
+                let children: Vec<usize> = node.children.iter()
+                    .copied()
+                    .filter(|&c| self.tree.node(c).is_some())
+                    .collect();
+                for &child in children.iter().rev() {
+                    self.stack.push(child);
+                }
+                return Some((idx, node));
+            }
+        }
+        None
     }
 }
 
@@ -145,6 +249,7 @@ pub struct GameInfo {
     pub date: String,   // e.g., "2024-10-01"
     pub board_size: u8, // 通常 19
     pub rules: String,  // "Japanese", "Chinese", "AGA"
+    pub starting_player: Option<Color>,
 }
 
 impl GameInfo {
@@ -158,6 +263,7 @@ impl GameInfo {
             date: String::new(),
             board_size: 19,
             rules: "Japanese".to_string(),
+            starting_player: None,
         }
     }
 }
@@ -202,7 +308,17 @@ impl GameRecord {
 
     /// 移除当前节点及子树
     pub fn remove_current_node(&mut self) -> bool {
-        todo!()
+        if let Some(&cur) = self.current_path.last() {
+            if let Some(map) = self.tree.remove_subtree(cur) {
+                // 将 current_path 中已删除的节点移除，并将保留的索引映射到新索引
+                self.current_path.retain(|idx| map.contains_key(idx));
+                for idx in self.current_path.iter_mut() {
+                    *idx = *map.get(idx).unwrap_or(idx);
+                }
+                return true;
+            }
+        }
+        false
     }
 
     /// 获取当前棋盘状态
@@ -211,6 +327,7 @@ impl GameRecord {
         for node_idx in self
             .tree
             .path_to_root(*self.current_path.last().unwrap_or(&0))
+            .unwrap()
         {
             if let Some(node) = self.tree.node(node_idx) {
                 if let Some(Move { point, color }) = &node.move_data {
@@ -228,7 +345,12 @@ impl GameRecord {
     }
 
     /// 获取当前应落子颜色（根据已有着法推断）
-    pub fn current_turn(&self) -> Option<Color> {
+    pub fn current_turn(&self) -> Color {
+        // 优先使用设定
+        if let Some(sp) = self.info.starting_player {
+            return sp;
+        }
+        
         let mut turn = if self.info.handicap > 1 {
             Color::White
         } else {
@@ -241,14 +363,14 @@ impl GameRecord {
                 }
             }
         }
-        Some(turn)
+        turn
     }
 
     /// 获取当前节点的所有子节点，返回一个迭代器（同时给出索引）
     pub fn current_children(&self) -> impl Iterator<Item = (usize, &TreeNode)> {
         self.current_path
             .last()
-            .map(|&idx| self.tree.get_children(idx))
+            .map(|&idx| self.tree.get_children(idx).unwrap())
             .into_iter()
             .flatten()
     }
@@ -266,7 +388,7 @@ impl GameRecord {
     pub fn current_siblings(&self) -> impl Iterator<Item = (usize, &TreeNode)> {
         self.current_path
             .last()
-            .map(|&idx| self.tree.get_siblings(idx))
+            .map(|&idx| self.tree.get_siblings(idx).unwrap())
             .into_iter()
             .flatten()
     }
@@ -289,7 +411,7 @@ impl GameRecord {
         let first_child_idx = self
             .current_path
             .last()
-            .and_then(|&current_idx| self.tree.get_children(current_idx).next())
+            .and_then(|&current_idx| self.tree.get_children(current_idx).unwrap().next())
             .map(|(idx, _)| idx);
 
         if let Some(child_idx) = first_child_idx {
@@ -345,6 +467,8 @@ impl GameRecord {
             false
         }
     }
+
+
 }
 
 impl Default for GameRecord {
