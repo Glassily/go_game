@@ -1,4 +1,4 @@
-use std::fmt::{Display};
+use std::fmt::Display;
 
 use crate::model::{Color, Point};
 
@@ -17,8 +17,16 @@ impl Move {
         Self { color, point: None }
     }
 
+    /// 创建落子着法
+    pub fn new(color: Color, point: Point) -> Self {
+        Self {
+            color,
+            point: Some(point),
+        }
+    }
+
     /// 创建落子着法（带边界验证）
-    pub fn new(color: Color, point: Point, board_size: u8) -> Option<Self> {
+    pub fn new_valid(color: Color, point: Point, board_size: u8) -> Option<Self> {
         if point.is_valid(board_size) {
             Some(Self {
                 color,
@@ -57,7 +65,7 @@ mod tests {
 
     #[test]
     fn test_move_creation() {
-        let mv1 = Move::new(Color::Black, Point { x: 3, y: 3 }, 19).unwrap();
+        let mv1 = Move::new(Color::Black, Point { x: 3, y: 3 });
         assert_eq!(mv1.color, Color::Black);
         assert_eq!(mv1.point, Some(Point { x: 3, y: 3 }));
 

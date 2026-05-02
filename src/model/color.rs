@@ -10,6 +10,14 @@ pub enum Color {
 }
 
 impl Color {
+    pub fn from_char(c: char) -> Option<Self> {
+        match c {
+            'B' | 'b' => Some(Color::Black),
+            'W' | 'w' => Some(Color::White),
+            _ => None,
+        }
+    }
+
     /// 切换颜色
     pub fn opposite(&self) -> Self {
         match self {
