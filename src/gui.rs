@@ -1,60 +1,43 @@
 use eframe::egui;
 use egui::{Color32, Stroke, Vec2};
 use std::collections::HashMap;
-use std::fs;
 
-use go_game::board::Board;
+use go_game::Board;
 use go_game::model::{Color, Move, Point};
-use go_game::sgf::{GameTree, Property, export, parse};
+use go_game::record::{GoRecord, NodeInfo};
+use go_game::sgf::{export, parse};
 
-pub struct GoApp {
-    tree: GameTree,
-    current: Option<usize>,
-    board: Board,
+pub struct GoGui {
+    record: GoRecord,
     edit_mode: bool,
     show_tree: bool,
     show_coords: bool,
     dark_theme: bool,
-    // history for undo/redo
-    history: Vec<GameTree>,
-    future: Vec<GameTree>,
-    // capture counts
-    black_captures: usize,
-    white_captures: usize,
-    // comment editing
     comment_edit: String,
     show_comment_panel: bool,
-    // context menu state
     context_node: Option<usize>,
     context_pos: egui::Pos2,
     show_context_window: bool,
-    // game info
     info_black: String,
     info_white: String,
     info_date: String,
     info_komi: String,
     info_result: String,
     show_info_window: bool,
-    // parse / io error display
     show_error_window: bool,
     error_message: String,
+    show_illegal_move_popup: bool,
+    illegal_move_error: Option<String>,
 }
 
-impl GoApp {
+impl GoGui {
     pub fn new() -> Self {
-        let board = Board::new(19);
         Self {
-            tree: GameTree::new(),
-            current: None,
-            board,
+            record: GoRecord::new(19),
             edit_mode: true,
             show_tree: true,
             show_coords: true,
             dark_theme: false,
-            history: Vec::new(),
-            future: Vec::new(),
-            black_captures: 0,
-            white_captures: 0,
             comment_edit: String::new(),
             show_comment_panel: true,
             context_node: None,
@@ -68,369 +51,402 @@ impl GoApp {
             show_info_window: false,
             show_error_window: false,
             error_message: String::new(),
-        }
-    }
-
-    fn go_prev(&mut self) {
-        if let Some(c) = self.current {
-            self.current = self.tree.get_parent(c);
-            self.rebuild_board_to(self.current);
-        }
-    }
-
-    fn go_next(&mut self) {
-        if let Some(c) = self.current {
-            let ch = self.tree.get_children(c);
-            if !ch.is_empty() {
-                self.current = Some(ch[0]);
-                self.rebuild_board_to(self.current);
-            }
-        } else if let Some(r) = self.tree.get_root() {
-            self.current = Some(r);
-            self.rebuild_board_to(self.current);
-        }
-    }
-
-    fn go_first(&mut self) {
-        self.current = self.tree.get_root();
-        self.rebuild_board_to(self.current);
-    }
-
-    fn go_last(&mut self) {
-        let mut cur = self.tree.get_root();
-        while let Some(c) = cur {
-            let ch = self.tree.get_children(c);
-            if ch.is_empty() {
-                break;
-            }
-            cur = Some(ch[0]);
-        }
-        self.current = cur;
-        self.rebuild_board_to(self.current);
-    }
-
-    fn mainline(&self) -> Vec<usize> {
-        let mut res = Vec::new();
-        let mut cur = self.tree.get_root();
-        while let Some(c) = cur {
-            res.push(c);
-            let ch = self.tree.get_children(c);
-            if ch.is_empty() {
-                break;
-            }
-            cur = Some(ch[0]);
-        }
-        res
-    }
-
-    fn rebuild_board_to(&mut self, idx: Option<usize>) {
-        // clear board and replay moves from root to idx
-        let size = self.board.size;
-        self.board = Board::new(size);
-        self.black_captures = 0;
-        self.white_captures = 0;
-        if idx.is_none() {
-            return;
-        }
-        let mut path = Vec::new();
-        let mut cur = idx;
-        while let Some(i) = cur {
-            path.push(i);
-            cur = self.tree.get_parent(i);
-        }
-        path.reverse();
-        for &i in &path {
-            if let Some(node) = self.tree.get_node(i) {
-                if let Some(v) = node.get(Property::B) {
-                    if let Some(s) = v.first() {
-                        let mv = property_str_to_move(s, Color::Black, size);
-                        if let Some(m) = mv {
-                            let (captured, _ko) = self.board.apply_move_uncheck(&m);
-                            self.black_captures += captured.len();
-                        }
-                    }
-                }
-                if let Some(v) = node.get(Property::W) {
-                    if let Some(s) = v.first() {
-                        let mv = property_str_to_move(s, Color::White, size);
-                        if let Some(m) = mv {
-                            let (captured, _ko) = self.board.apply_move_uncheck(&m);
-                            self.white_captures += captured.len();
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    fn push_snapshot(&mut self) {
-        self.history.push(self.tree.clone());
-        self.future.clear();
-    }
-
-    fn undo(&mut self) {
-        if let Some(prev) = self.history.pop() {
-            self.future.push(self.tree.clone());
-            self.tree = prev;
-            // try to set current to root if unavailable
-            self.current = self.tree.get_root();
-            self.rebuild_board_to(self.current);
-        }
-    }
-
-    fn redo(&mut self) {
-        if let Some(next) = self.future.pop() {
-            self.history.push(self.tree.clone());
-            self.tree = next;
-            self.current = self.tree.get_root();
-            self.rebuild_board_to(self.current);
+            show_illegal_move_popup: false,
+            illegal_move_error: None,
         }
     }
 }
 
-fn property_str_to_move(s: &str, color: Color, board_size: u8) -> Option<Move> {
-    if s.is_empty() {
-        Some(Move::pass(color))
-    } else {
-        Point::from_sgf(s, board_size).map(|pt| Move::new(color, pt))
-    }
-}
-
-impl eframe::App for GoApp {
+impl eframe::App for GoGui {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // global keyboard shortcuts (use input reader API)
         ctx.input(|input| {
             if input.key_pressed(egui::Key::ArrowLeft) {
-                self.go_prev();
+                self.record.go_prev();
             }
             if input.key_pressed(egui::Key::ArrowRight) {
-                self.go_next();
+                self.record.go_next();
             }
             if input.key_pressed(egui::Key::Home) {
-                self.go_first();
+                self.record.go_first();
             }
             if input.key_pressed(egui::Key::End) {
-                self.go_last();
+                self.record.go_last();
             }
             if input.modifiers.ctrl && input.key_pressed(egui::Key::Z) {
                 if input.modifiers.shift {
-                    self.redo();
+                    self.record.redo();
                 } else {
-                    self.undo();
+                    self.record.undo();
                 }
             }
         });
-        // top menu + toolbar
+
+        self.top_panel(ctx);
+        self.status_bar(ctx);
+        self.central_panel(ctx);
+        self.info_window(ctx);
+        self.error_window(ctx);
+        self.illegal_move_popup(ctx);
+        self.context_menu(ctx);
+    }
+}
+
+impl GoGui {
+    /// 菜单栏
+    fn top_panel(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
-                ui.menu_button("File", |ui| {
-                    if ui.button("New").clicked() {
-                        self.push_snapshot();
-                        self.tree = GameTree::new();
-                        self.current = None;
-                        self.rebuild_board_to(None);
-                        ui.close_menu();
-                    }
-                    if ui.button("Open SGF").clicked() {
-                        if let Some(path) = rfd::FileDialog::new().pick_file() {
-                            match fs::read_to_string(&path) {
-                                Ok(s) => match parse(&s) {
-                                    Ok(t) => {
-                                        self.push_snapshot();
-                                        self.tree = t;
-                                        self.current = self.tree.get_root();
-                                        self.rebuild_board_to(self.current);
-                                    }
-                                    Err(e) => {
-                                        self.show_error_window = true;
-                                        self.error_message = format!("SGF parse error: {}", e);
-                                    }
-                                },
-                                Err(e) => {
-                                    self.show_error_window = true;
-                                    self.error_message = format!("Failed to read file: {}", e);
-                                }
-                            }
-                        }
-                        ui.close_menu();
-                    }
-                    if ui.button("Save As").clicked() {
-                        if let Some(path) = rfd::FileDialog::new().save_file() {
-                            let s = export(&self.tree);
-                            let _ = fs::write(path, s);
-                        }
-                        ui.close_menu();
-                    }
-                    if ui.button("Quit").clicked() {
-                        std::process::exit(0);
-                    }
-                });
-
-                ui.menu_button("Edit", |ui| {
-                    if ui.button("Undo (Ctrl+Z)").clicked() {
-                        self.undo();
-                        ui.close_menu();
-                    }
-                    if ui.button("Redo (Ctrl+Shift+Z)").clicked() {
-                        self.redo();
-                        ui.close_menu();
-                    }
-                    if ui.button("Toggle Edit Mode").clicked() {
-                        self.edit_mode = !self.edit_mode;
-                        ui.close_menu();
-                    }
-                });
-
-                ui.menu_button("View", |ui| {
-                    if ui.checkbox(&mut self.dark_theme, "Dark theme").clicked() {
-                        if self.dark_theme {
-                            ctx.set_visuals(egui::Visuals::dark());
-                        } else {
-                            ctx.set_visuals(egui::Visuals::light());
-                        }
-                    }
-                    ui.checkbox(&mut self.show_tree, "Show game tree");
-                    ui.checkbox(&mut self.show_coords, "Show coordinates");
-                    ui.checkbox(&mut self.show_comment_panel, "Show comment panel");
-                });
-
-                ui.menu_button("Help", |ui| {
-                    ui.label("Go SGF Editor - minimal demo");
-                });
+                self.file_menu(ui);
+                self.edit_menu(ui);
+                self.view_menu(ui);
+                self.help_menu(ui);
             });
 
             ui.horizontal(|ui| {
                 if ui.button("|<").clicked() {
-                    self.go_first();
+                    self.record.go_first();
                 }
                 if ui.button("<").clicked() {
-                    self.go_prev();
+                    self.record.go_prev();
                 }
                 if ui.button(">").clicked() {
-                    self.go_next();
+                    self.record.go_next();
                 }
                 if ui.button("|>").clicked() {
-                    self.go_last();
+                    self.record.go_last();
                 }
-                ui.label("Move:");
-                let mut cur_idx = 0usize;
-                if let Some(c) = self.current {
-                    cur_idx = c;
-                }
-                ui.label(format!("Current: {}", cur_idx));
+                ui.label(format!(
+                    "Move: {}/{}",
+                    self.record.current_move_number(),
+                    self.record.total_moves()
+                ));
             });
         });
+    }
 
-        // 右侧树面板（固定占比宽度，不可调整），在 CentralPanel 之外定义以保证棋盘计算可用区域不被挤占
-        if self.show_tree {
-            let win_w = ctx.available_rect().width();
-            println!("Available width: {}", win_w);
-            let panel_w = (win_w * 0.28).clamp(200.0, 420.0);
-            println!("Tree panel width: {}", panel_w);
-            egui::SidePanel::right("right_panel")
-                .resizable(false)
-                .default_width(panel_w)
-                .show(ctx, |ui| {
+    fn file_menu(&mut self, ui: &mut egui::Ui) {
+        ui.menu_button("File", |ui| {
+            if ui.button("New").clicked() {
+                self.record.new_game();
+                self.info_black.clear();
+                self.info_white.clear();
+                self.info_date.clear();
+                self.info_komi.clear();
+                self.info_result.clear();
+                ui.close_menu();
+            }
+            if ui.button("Open SGF").clicked() {
+                if let Some(path) = rfd::FileDialog::new().pick_file() {
+                    match std::fs::read_to_string(&path) {
+                        Ok(s) => match parse(&s) {
+                            Ok(tree) => {
+                                self.record.load_sgf(tree);
+                                let info = self.record.get_game_info();
+                                self.info_black = info.black.unwrap_or_default();
+                                self.info_white = info.white.unwrap_or_default();
+                                self.info_date = info.date.unwrap_or_default();
+                                self.info_komi = info.komi.unwrap_or_default();
+                                self.info_result = info.result.unwrap_or_default();
+                            }
+                            Err(e) => {
+                                self.show_error_window = true;
+                                self.error_message = format!("SGF parse error: {}", e);
+                            }
+                        },
+                        Err(e) => {
+                            self.show_error_window = true;
+                            self.error_message = format!("Failed to read file: {}", e);
+                        }
+                    }
+                }
+                ui.close_menu();
+            }
+            if ui.button("Save As").clicked() {
+                if let Some(path) = rfd::FileDialog::new().save_file() {
+                    let s = export(&self.record.tree);
+                    let _ = std::fs::write(path, s);
+                }
+                ui.close_menu();
+            }
+            if ui.button("Quit").clicked() {
+                std::process::exit(0);
+            }
+        });
+    }
+
+    fn edit_menu(&mut self, ui: &mut egui::Ui) {
+        ui.menu_button("Edit", |ui| {
+            if ui.button("Undo (Ctrl+Z)").clicked() {
+                self.record.undo();
+                ui.close_menu();
+            }
+            if ui.button("Redo (Ctrl+Shift+Z)").clicked() {
+                self.record.redo();
+                ui.close_menu();
+            }
+            if ui
+                .button(format!(
+                    "Toggle Edit Mode ({})",
+                    if self.edit_mode { "ON" } else { "OFF" }
+                ))
+                .clicked()
+            {
+                self.edit_mode = !self.edit_mode;
+                ui.close_menu();
+            }
+        });
+    }
+
+    fn view_menu(&mut self, ui: &mut egui::Ui) {
+        ui.menu_button("View", |ui| {
+            if ui.checkbox(&mut self.dark_theme, "Dark theme").clicked() {
+                if self.dark_theme {
+                    ui.ctx().set_visuals(egui::Visuals::dark());
+                } else {
+                    ui.ctx().set_visuals(egui::Visuals::light());
+                }
+            }
+            ui.checkbox(&mut self.show_tree, "Show game tree");
+            ui.checkbox(&mut self.show_coords, "Show coordinates");
+            ui.checkbox(&mut self.show_comment_panel, "Show comment panel");
+        });
+    }
+
+    fn help_menu(&mut self, ui: &mut egui::Ui) {
+        ui.menu_button("Help", |ui| {
+            ui.label("Go SGF Editor");
+        });
+    }
+
+    fn central_panel(&mut self, ctx: &egui::Context) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            let avail = ui.available_rect_before_wrap();
+
+            if self.show_tree {
+                // 计算树面板宽度：基于窗口宽度的基础宽度乘以系数，使其随窗口大小变化
+                let win_w = avail.width();
+                let base_panel_w = (win_w * 0.28).clamp(200.0, 420.0);
+                let coef = (win_w / 1200.0).clamp(0.6, 1.2);
+                let tree_w = (base_panel_w * coef).min(win_w * 0.6);
+                let gap = 8.0;
+
+                let board_area_w = (avail.width() - tree_w - gap).max(120.0);
+
+                // 绝对矩形分配：将棋盘放左，树面板放在中央面板的最右侧（靠右布局）
+                let left_rect =
+                    egui::Rect::from_min_size(avail.min, Vec2::new(board_area_w, avail.height()));
+                let tree_rect = egui::Rect::from_min_max(
+                    egui::pos2(avail.right() - tree_w, avail.top()),
+                    egui::pos2(avail.right(), avail.bottom()),
+                );
+
+                ui.allocate_ui_at_rect(left_rect, |ui| {
+                    // 棋盘绘制（与之前逻辑相同）
+                    let avail_child = ui.available_rect_before_wrap();
+                    let board_size = avail_child.width().min(avail_child.height());
+                    let center = avail_child.center();
+                    let min_pos = center - Vec2::splat(board_size * 0.5);
+                    let board_rect = egui::Rect::from_min_size(min_pos, Vec2::splat(board_size));
+
+                    let response = ui.allocate_rect(board_rect, egui::Sense::click());
+                    let board_rect = response.rect;
+
+                    draw_board(ui, board_rect, &self.record.board, self.show_coords);
+
+                    if response.clicked() && self.edit_mode {
+                        if let Some(pos) = response.interact_pointer_pos() {
+                            if let Some(pt) =
+                                screen_pos_to_point(board_rect, pos, self.record.board_size())
+                            {
+                                let next_color = self.record.next_to_move();
+                                let mv = Move::new(next_color, pt);
+                                if let Err(e) = self.record.add_move(mv) {
+                                    self.show_illegal_move_popup = true;
+                                    self.illegal_move_error = Some(format!("{:?}", e));
+                                }
+                            }
+                        }
+                    }
+
+                    if response.secondary_clicked() {
+                        if let Some(pos) = response.interact_pointer_pos() {
+                            if let Some(pt) =
+                                screen_pos_to_point(board_rect, pos, self.record.board_size())
+                            {
+                                self.context_node = self.record.find_move_at_point(pt);
+                                self.context_pos = pos;
+                                self.show_context_window = true;
+                            }
+                        }
+                    }
+                });
+
+                ui.allocate_ui_at_rect(tree_rect, |ui| {
                     ui.label("Game Tree");
 
-                    // collect node data: (index, kind, comment, depth)
-                    // kind: 0 none, 1 black, 2 white
-                    let node_views: Vec<(usize, u8, Option<String>, usize)> = self
-                        .tree
-                        .nodes
-                        .iter()
-                        .enumerate()
-                        .filter_map(|(i, node)| {
-                            if node.deleted {
-                                return None;
-                            }
-                            let depth = node_depth(&self.tree, i);
-                            let mut kind: u8 = 0;
-                            if node.contains(Property::B) {
-                                kind = 1;
-                            }
-                            if node.contains(Property::W) {
-                                kind = 2;
-                            }
-                            let comment = node.get(Property::C).and_then(|v| v.first().cloned());
-                            Some((i, kind, comment, depth))
-                        })
-                        .collect();
+                    // 以下内容为原 tree_panel 中的绘制逻辑，已适配为在子 UI 中使用
+                    let node_views: Vec<(usize, NodeInfo)> = self.record.all_nodes();
+                    let max_depth = node_views.iter().map(|t| t.1.depth).max().unwrap_or(0);
 
-                    // compute min width so deep trees produce horizontal scrollbar
-                    let max_depth = node_views.iter().map(|t| t.3).max().unwrap_or(0) as f32;
-                    let indent = 18.0;
-                    let required_w = (max_depth + 2.0) * indent + 160.0;
+                    // 列分配
+                    let mut col_map: HashMap<usize, usize> = HashMap::new();
+                    let mut next_col: usize = 1;
+                    fn assign_cols(
+                        tree: &go_game::sgf::GameTree,
+                        idx: usize,
+                        col_map: &mut HashMap<usize, usize>,
+                        next_col: &mut usize,
+                        parent_col: usize,
+                    ) {
+                        if col_map.contains_key(&idx) {
+                            return;
+                        }
+                        col_map.insert(idx, parent_col);
+                        let children = tree.get_children(idx).to_vec();
+                        if children.is_empty() {
+                            return;
+                        }
+                        let mut iter = children.into_iter();
+                        if let Some(first) = iter.next() {
+                            assign_cols(tree, first, col_map, next_col, parent_col);
+                        }
+                        for c in iter {
+                            let this_col = *next_col;
+                            *next_col += 1;
+                            assign_cols(tree, c, col_map, next_col, this_col);
+                        }
+                    }
+                    if let Some(root) = self.record.tree.get_root() {
+                        assign_cols(&self.record.tree, root, &mut col_map, &mut next_col, 0);
+                    }
+
+                    let max_col = col_map.values().copied().max().unwrap_or(0);
+
+                    // 布局参数（更紧凑以适应子面板）
+                    let row_h = 36.0;
+                    let col_w = 40.0;
+                    let canvas_w = (max_col as f32 + 1.0) * col_w + 20.0;
+                    let canvas_h = (max_depth as f32 + 2.0) * row_h + 20.0;
 
                     egui::ScrollArea::both().show_viewport(ui, |ui, _viewport| {
-                        ui.set_min_width(required_w);
+                        // 限制最小宽度为 canvas_w，但不会超出子面板宽度
+                        ui.set_min_width(canvas_w.min(tree_w - 8.0));
 
-                        for (i, kind, comment, depth) in &node_views {
-                            ui.horizontal(|ui| {
-                                ui.add_space((*depth as f32 * indent) as f32);
-                                let dot_size = 12.0;
-                                let (rect, resp) = ui.allocate_exact_size(
-                                    Vec2::new(dot_size + 8.0, dot_size + 8.0),
-                                    egui::Sense::click(),
-                                );
-                                let painter = ui.painter();
-                                let center = rect.center();
-                                if self.current == Some(*i) {
-                                    painter.rect_filled(
-                                        rect.expand(4.0),
-                                        4.0,
-                                        Color32::from_rgb(200, 230, 255),
+                        ui.allocate_space(Vec2::new(canvas_w, canvas_h));
+                        let origin = ui.min_rect().min;
+                        let painter = ui.painter();
+
+                        let mut nodes_sorted = node_views.clone();
+                        nodes_sorted.sort_by(|a, b| {
+                            a.1.depth.cmp(&b.1.depth).then_with(|| {
+                                let ca = col_map.get(&a.0).copied().unwrap_or(0);
+                                let cb = col_map.get(&b.0).copied().unwrap_or(0);
+                                ca.cmp(&cb)
+                            })
+                        });
+
+                        // 计算位置并缓存
+                        let dot_size = 12.0;
+                        let mut pos_map: HashMap<usize, egui::Pos2> = HashMap::new();
+                        let mut rect_map: HashMap<usize, egui::Rect> = HashMap::new();
+                        for (idx, info) in &nodes_sorted {
+                            let col = col_map.get(idx).copied().unwrap_or(0) as f32;
+                            let x = origin.x + 12.0 + col * col_w;
+                            let y = origin.y + 8.0 + info.depth as f32 * row_h;
+                            let node_rect = egui::Rect::from_min_size(
+                                egui::pos2(x, y),
+                                Vec2::new(dot_size + 8.0, dot_size + 8.0),
+                            );
+                            pos_map.insert(*idx, node_rect.center());
+                            rect_map.insert(*idx, node_rect);
+                        }
+
+                        // 绘制连线
+                        for (idx, _info) in &nodes_sorted {
+                            if let Some(parent) = self.record.tree.get_parent(*idx) {
+                                if let (Some(&a), Some(&b)) =
+                                    (pos_map.get(&parent), pos_map.get(idx))
+                                {
+                                    let mid_y = (a.y + b.y) * 0.5;
+                                    let p1 = egui::Pos2::new(a.x, mid_y);
+                                    let p2 = egui::Pos2::new(b.x, mid_y);
+                                    painter.line_segment(
+                                        [a, p1],
+                                        Stroke::new(1.0, Color32::from_gray(160)),
+                                    );
+                                    painter.line_segment(
+                                        [p1, p2],
+                                        Stroke::new(1.0, Color32::from_gray(160)),
+                                    );
+                                    painter.line_segment(
+                                        [p2, b],
+                                        Stroke::new(1.0, Color32::from_gray(160)),
                                     );
                                 }
-                                let _shape = match kind {
-                                    1 => painter.circle_filled(
+                            }
+                        }
+
+                        // 绘制节点
+                        for (idx, info) in &nodes_sorted {
+                            let node_rect = rect_map.get(idx).copied().unwrap();
+                            let resp = ui.interact(
+                                node_rect,
+                                egui::Id::new(format!("node_{}", idx)),
+                                egui::Sense::click(),
+                            );
+                            let center = node_rect.center();
+                            if self.record.current == Some(*idx) {
+                                painter.rect_filled(
+                                    node_rect.expand(4.0),
+                                    4.0,
+                                    Color32::from_rgb(200, 230, 255),
+                                );
+                            }
+                            match info.kind {
+                                1 => {
+                                    painter.circle_filled(center, dot_size * 0.45, Color32::BLACK);
+                                }
+                                2 => {
+                                    painter.circle_filled(center, dot_size * 0.45, Color32::WHITE);
+                                    painter.circle_stroke(
                                         center,
                                         dot_size * 0.45,
-                                        Color32::BLACK,
-                                    ),
-                                    2 => {
-                                        let s = painter.circle_filled(
-                                            center,
-                                            dot_size * 0.45,
-                                            Color32::WHITE,
-                                        );
-                                        painter.circle_stroke(
-                                            center,
-                                            dot_size * 0.45,
-                                            Stroke::new(1.0, Color32::BLACK),
-                                        );
-                                        s
-                                    }
-                                    _ => painter.circle_filled(
+                                        Stroke::new(1.0, Color32::BLACK),
+                                    );
+                                }
+                                _ => {
+                                    painter.circle_filled(
                                         center,
                                         dot_size * 0.25,
                                         Color32::from_gray(120),
-                                    ),
-                                };
-
-                                if resp.clicked() {
-                                    self.current = Some(*i);
-                                    self.comment_edit = comment.clone().unwrap_or_default();
-                                    self.rebuild_board_to(self.current);
+                                    );
                                 }
+                            }
 
-                                ui.add_space(6.0);
-                                if let Some(c) = comment {
-                                    ui.label(c.clone());
-                                }
-                            });
+                            if resp.clicked() {
+                                self.record.go_to(*idx);
+                                self.comment_edit = info.comment.clone().unwrap_or_default();
+                            }
+
+                            if let Some(c) = &info.comment {
+                                painter.text(
+                                    egui::pos2(node_rect.right() + 6.0, node_rect.center().y - 6.0),
+                                    egui::Align2::LEFT_TOP,
+                                    c.clone(),
+                                    egui::FontId::proportional(12.0),
+                                    Color32::BLACK,
+                                );
+                            }
                         }
 
+                        // 评论面板
                         if self.show_comment_panel {
                             ui.separator();
                             ui.label("Comment");
                             ui.horizontal(|ui| {
                                 if ui.button("Save").clicked() {
-                                    if let Some(i) = self.current {
-                                        self.push_snapshot();
-                                        if let Some(node) = self.tree.get_node_mut(i) {
-                                            node.set(Property::C, vec![self.comment_edit.clone()]);
-                                        }
+                                    if let Some(i) = self.record.current {
+                                        self.record.set_comment(i, self.comment_edit.clone());
                                     }
                                 }
                                 if ui.button("Clear").clicked() {
@@ -443,102 +459,60 @@ impl eframe::App for GoApp {
                         }
                     });
                 });
-        }
+            } else {
+                // 无树时保持原始棋盘居中显示
+                let board_size = avail.width().min(avail.height());
+                let center = avail.center();
+                let min_pos = center - Vec2::splat(board_size * 0.5);
+                let board_rect = egui::Rect::from_min_size(min_pos, Vec2::splat(board_size));
 
-        // central layout: board in CentralPanel
-        egui::CentralPanel::default().show(ctx, |ui| {
-            // allocate a centered square inside the central panel
-            let avail = ui.available_rect_before_wrap();
-            let board_size = avail.width().min(avail.height());
-            let center = avail.center();
-            let min_pos = center - Vec2::splat(board_size * 0.5);
-            let board_rect = egui::Rect::from_min_size(min_pos, Vec2::splat(board_size));
+                let response = ui.allocate_rect(board_rect, egui::Sense::click());
+                let board_rect = response.rect;
 
-            let response = ui.allocate_rect(board_rect, egui::Sense::click());
-            let r = board_rect;
-            draw_board(
-                ui,
-                r,
-                &self.board,
-                self.show_coords,
-                self.tree.get_root(),
-                self.current,
-            );
+                draw_board(ui, board_rect, &self.record.board, self.show_coords);
 
-            if response.clicked() {
-                if self.edit_mode {
+                if response.clicked() && self.edit_mode {
                     if let Some(pos) = response.interact_pointer_pos() {
-                        if let Some(pt) = screen_pos_to_point(r, pos, self.board.size) {
-                            let next_color = next_to_move(&self.tree, self.current);
-                            let _mv = Move::new(next_color, pt);
-                            self.push_snapshot();
-                            let mut map = HashMap::new();
-                            let prop = match next_color {
-                                Color::Black => Property::B,
-                                Color::White => Property::W,
-                            };
-                            map.insert(prop, vec![pt.to_sgf()]);
-                            let _ = self.tree.add_node(self.current, map);
-                            self.current = Some(self.tree.nodes.len() - 1);
-                            self.rebuild_board_to(self.current);
+                        if let Some(pt) =
+                            screen_pos_to_point(board_rect, pos, self.record.board_size())
+                        {
+                            let next_color = self.record.next_to_move();
+                            let mv = Move::new(next_color, pt);
+                            if let Err(e) = self.record.add_move(mv) {
+                                self.show_illegal_move_popup = true;
+                                self.illegal_move_error = Some(format!("{:?}", e));
+                            }
                         }
                     }
                 }
-            }
 
-            if response.secondary_clicked() {
-                if let Some(pos) = response.interact_pointer_pos() {
-                    if let Some(pt) = screen_pos_to_point(r, pos, self.board.size) {
-                        let mut found: Option<usize> = None;
-                        for (i, node) in self.tree.nodes.iter().enumerate().rev() {
-                            if node.deleted {
-                                continue;
-                            }
-                            if let Some(v) = node.get(Property::B) {
-                                if v.first().map(|s| s == &pt.to_sgf()).unwrap_or(false) {
-                                    found = Some(i);
-                                    break;
-                                }
-                            }
-                            if let Some(v) = node.get(Property::W) {
-                                if v.first().map(|s| s == &pt.to_sgf()).unwrap_or(false) {
-                                    found = Some(i);
-                                    break;
-                                }
-                            }
+                if response.secondary_clicked() {
+                    if let Some(pos) = response.interact_pointer_pos() {
+                        if let Some(pt) =
+                            screen_pos_to_point(board_rect, pos, self.record.board_size())
+                        {
+                            self.context_node = self.record.find_move_at_point(pt);
+                            self.context_pos = pos;
+                            self.show_context_window = true;
                         }
-                        self.context_node = found;
-                        self.context_pos = pos;
-                        self.show_context_window = true;
                     }
                 }
             }
         });
+    }
 
-        // bottom status
+    fn status_bar(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                let mainline = self.mainline();
-                let total = mainline.len();
-                let mut cur_move = 0usize;
-                if let Some(c) = self.current {
-                    let mut n = Some(c);
-                    let mut cnt = 0usize;
-                    while let Some(i) = n {
-                        if let Some(node) = self.tree.get_node(i) {
-                            if node.contains(Property::B) || node.contains(Property::W) {
-                                cnt += 1;
-                            }
-                        }
-                        n = self.tree.get_parent(i);
-                    }
-                    cur_move = cnt;
-                }
-                ui.label(format!("Move: {}/{}", cur_move, total));
+                ui.label(format!(
+                    "Move: {}/{}",
+                    self.record.current_move_number(),
+                    self.record.total_moves()
+                ));
                 ui.separator();
                 ui.label(format!(
                     "Next: {}",
-                    if next_to_move(&self.tree, self.current) == Color::Black {
+                    if self.record.next_to_move() == Color::Black {
                         "Black"
                     } else {
                         "White"
@@ -547,13 +521,10 @@ impl eframe::App for GoApp {
                 ui.separator();
                 ui.label(format!(
                     "Captures - Black: {}  White: {}",
-                    self.black_captures, self.white_captures
+                    self.record.black_captures, self.record.white_captures
                 ));
                 ui.separator();
-                ui.label(format!(
-                    "Nodes: {}",
-                    self.tree.nodes.iter().filter(|n| !n.deleted).count()
-                ));
+                ui.label(format!("Nodes: {}", self.record.node_count()));
                 ui.separator();
                 ui.label(format!(
                     "Edit: {}",
@@ -565,85 +536,150 @@ impl eframe::App for GoApp {
                 }
                 ui.separator();
                 if ui.button("Game Info").clicked() {
+                    let info = self.record.get_game_info();
+                    self.info_black = info.black.unwrap_or_default();
+                    self.info_white = info.white.unwrap_or_default();
+                    self.info_date = info.date.unwrap_or_default();
+                    self.info_komi = info.komi.unwrap_or_default();
+                    self.info_result = info.result.unwrap_or_default();
                     self.show_info_window = true;
                 }
             });
         });
+    }
 
-        if self.show_info_window {
-            egui::Window::new("Game Info").show(ctx, |ui| {
-                ui.label("Black:");
-                ui.text_edit_singleline(&mut self.info_black);
-                ui.label("White:");
-                ui.text_edit_singleline(&mut self.info_white);
-                ui.label("Date:");
-                ui.text_edit_singleline(&mut self.info_date);
-                ui.label("Komi:");
-                ui.text_edit_singleline(&mut self.info_komi);
-                ui.label("Result:");
-                ui.text_edit_singleline(&mut self.info_result);
+    fn info_window(&mut self, ctx: &egui::Context) {
+        if !self.show_info_window {
+            return;
+        }
+
+        egui::Window::new("Game Info").show(ctx, |ui| {
+            ui.label("Black:");
+            ui.text_edit_singleline(&mut self.info_black);
+            ui.label("White:");
+            ui.text_edit_singleline(&mut self.info_white);
+            ui.label("Date:");
+            ui.text_edit_singleline(&mut self.info_date);
+            ui.label("Komi:");
+            ui.text_edit_singleline(&mut self.info_komi);
+            ui.label("Result:");
+            ui.text_edit_singleline(&mut self.info_result);
+
+            ui.horizontal(|ui| {
+                if ui.button("Save").clicked() {
+                    let info = go_game::record::GameInfo {
+                        black: if self.info_black.is_empty() {
+                            None
+                        } else {
+                            Some(self.info_black.clone())
+                        },
+                        white: if self.info_white.is_empty() {
+                            None
+                        } else {
+                            Some(self.info_white.clone())
+                        },
+                        date: if self.info_date.is_empty() {
+                            None
+                        } else {
+                            Some(self.info_date.clone())
+                        },
+                        komi: if self.info_komi.is_empty() {
+                            None
+                        } else {
+                            Some(self.info_komi.clone())
+                        },
+                        result: if self.info_result.is_empty() {
+                            None
+                        } else {
+                            Some(self.info_result.clone())
+                        },
+                    };
+                    self.record.set_game_info(&info);
+                    self.show_info_window = false;
+                }
+                if ui.button("Cancel").clicked() {
+                    self.show_info_window = false;
+                }
+            });
+        });
+    }
+
+    fn error_window(&mut self, ctx: &egui::Context) {
+        if !self.show_error_window {
+            return;
+        }
+
+        egui::Window::new("Error")
+            .collapsible(false)
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.label(&self.error_message);
                 ui.horizontal(|ui| {
-                    if ui.button("Save").clicked() {
-                        if let Some(r) = self.tree.get_root() {
-                            if let Some(node) = self.tree.get_node_mut(r) {
-                                if !self.info_black.is_empty() {
-                                    node.set(Property::PB, vec![self.info_black.clone()]);
-                                }
-                                if !self.info_white.is_empty() {
-                                    node.set(Property::PW, vec![self.info_white.clone()]);
-                                }
-                                if !self.info_date.is_empty() {
-                                    node.set(Property::DT, vec![self.info_date.clone()]);
-                                }
-                                if !self.info_komi.is_empty() {
-                                    node.set(Property::KM, vec![self.info_komi.clone()]);
-                                }
-                                if !self.info_result.is_empty() {
-                                    node.set(Property::RE, vec![self.info_result.clone()]);
-                                }
-                            }
-                        }
-                        self.show_info_window = false;
-                    }
-                    if ui.button("Cancel").clicked() {
-                        self.show_info_window = false;
+                    if ui.button("OK").clicked() {
+                        self.show_error_window = false;
+                        self.error_message.clear();
                     }
                 });
             });
+    }
+
+    fn illegal_move_popup(&mut self, ctx: &egui::Context) {
+        if !self.show_illegal_move_popup {
+            return;
         }
 
-        if self.show_error_window {
-            egui::Window::new("Error")
-                .collapsible(false)
-                .resizable(false)
-                .show(ctx, |ui| {
-                    ui.label(&self.error_message);
-                    ui.horizontal(|ui| {
-                        if ui.button("OK").clicked() {
-                            self.show_error_window = false;
-                            self.error_message.clear();
-                        }
-                    });
+        egui::Window::new("Illegal Move")
+            .collapsible(false)
+            .resizable(false)
+            .show(ctx, |ui| {
+                let msg = self
+                    .illegal_move_error
+                    .as_deref()
+                    .unwrap_or("Unknown error");
+                ui.label(msg);
+                ui.horizontal(|ui| {
+                    if ui.button("OK").clicked() {
+                        self.show_illegal_move_popup = false;
+                        self.illegal_move_error = None;
+                    }
                 });
+            });
+    }
+
+    fn context_menu(&mut self, ctx: &egui::Context) {
+        if !self.show_context_window {
+            return;
         }
+
+        let node_idx = self.context_node;
+
+        egui::Window::new("Move Options")
+            .fixed_pos(self.context_pos)
+            .show(ctx, |ui| {
+                if let Some(idx) = node_idx {
+                    ui.label(format!("Node: {}", idx));
+                    if ui.button("Go to").clicked() {
+                        self.record.go_to(idx);
+                        self.context_node = None;
+                        self.show_context_window = false;
+                        ui.close_menu();
+                    }
+                }
+                if ui.button("Cancel").clicked() {
+                    self.context_node = None;
+                    self.show_context_window = false;
+                    ui.close_menu();
+                }
+            });
     }
 }
 
-fn draw_board(
-    ui: &mut egui::Ui,
-    rect: egui::Rect,
-    board: &Board,
-    show_coords: bool,
-    _root: Option<usize>,
-    _current: Option<usize>,
-) {
+fn draw_board(ui: &mut egui::Ui, rect: egui::Rect, board: &Board, show_coords: bool) {
     let painter = ui.painter_at(rect);
     let size = board.size as usize;
 
-    // 背景色（木质效果）
     painter.rect_filled(rect, 0.0, Color32::from_rgb(230, 190, 120));
 
-    // 动态计算内边距：最大20，最小2，约为宽度的3%
     let pad = (rect.width() * 0.03).clamp(2.0, 20.0);
     let inner_rect = rect.shrink(2.0);
     let drawing_rect = egui::Rect::from_min_max(
@@ -652,7 +688,6 @@ fn draw_board(
     );
     let cell = drawing_rect.width() / ((size as f32 - 1.0).max(1.0));
 
-    // 画网格线
     for i in 0..size {
         let x = drawing_rect.left() + i as f32 * cell;
         let y = drawing_rect.top() + i as f32 * cell;
@@ -672,7 +707,6 @@ fn draw_board(
         );
     }
 
-    // 星位（仅对19路或更小尺寸有效，若小于9则自动调整）
     let star_points = if size == 19 {
         vec![3, 9, 15]
     } else if size == 13 {
@@ -687,13 +721,12 @@ fn draw_board(
             if sx < size && sy < size {
                 let cx = drawing_rect.left() + sx as f32 * cell;
                 let cy = drawing_rect.top() + sy as f32 * cell;
-                let star_radius = cell * 0.08; // 动态星标半径
+                let star_radius = cell * 0.08;
                 painter.circle_filled(egui::pos2(cx, cy), star_radius, Color32::BLACK);
             }
         }
     }
 
-    // 画棋子
     for y in 0..size {
         for x in 0..size {
             let pt = Point {
@@ -721,10 +754,9 @@ fn draw_board(
         }
     }
 
-    // 坐标（动态字体大小）
     if show_coords {
         let font_id = egui::FontId::proportional((cell * 0.35).max(1.0));
-        // 底部字母坐标
+        //下方坐标
         for x in 0..size {
             let cx = drawing_rect.left() + x as f32 * cell;
             let label = if x >= 8 {
@@ -740,7 +772,7 @@ fn draw_board(
                 Color32::BLACK,
             );
         }
-        // 右侧数字坐标
+        // 右边坐标
         for y in 0..size {
             let cy = drawing_rect.top() + y as f32 * cell;
             let label = (size - y).to_string();
@@ -755,20 +787,7 @@ fn draw_board(
     }
 }
 
-fn draw_tree_panel(
-    ui: &mut egui::Ui, 
-    rect: egui::Rect,
-    tree: &GameTree, 
-    show_tree: bool,
-    current: Option<usize>
-) {
-    
-
-
-}
-
 fn screen_pos_to_point(rect: egui::Rect, pos: egui::Pos2, size: u8) -> Option<Point> {
-    // 必须与 draw_board 中的几何计算完全一致
     let pad = (rect.width() * 0.03).clamp(2.0, 20.0);
     let inner_rect = rect.shrink(2.0);
     let drawing_rect = egui::Rect::from_min_max(
@@ -791,44 +810,4 @@ fn screen_pos_to_point(rect: egui::Rect, pos: egui::Pos2, size: u8) -> Option<Po
     } else {
         None
     }
-}
-
-fn next_to_move(tree: &GameTree, cur: Option<usize>) -> Color {
-    // count moves from root to cur
-    let mut count = 0usize;
-    if let Some(mut n) = cur {
-        while let Some(p) = tree.get_parent(n) {
-            if let Some(node) = tree.get_node(n) {
-                if node.contains(Property::B) || node.contains(Property::W) {
-                    count += 1;
-                }
-            }
-            n = p;
-        }
-        // include root
-        if let Some(root) = tree.get_root() {
-            if let Some(node) = tree.get_node(root) {
-                if node.contains(Property::B) || node.contains(Property::W) {
-                    count += 1;
-                }
-            }
-        }
-    }
-    if count % 2 == 0 {
-        Color::Black
-    } else {
-        Color::White
-    }
-}
-
-fn node_depth(tree: &GameTree, idx: usize) -> usize {
-    let mut d = 0;
-    let mut cur = Some(idx);
-    while let Some(i) = cur {
-        cur = tree.get_parent(i);
-        if cur.is_some() {
-            d += 1;
-        }
-    }
-    d
 }
