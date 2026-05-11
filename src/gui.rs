@@ -1,3 +1,4 @@
+use chardetng::{self, Iso2022JpDetection};
 use eframe::egui;
 use egui::{Color32, Stroke, Vec2};
 use std::collections::HashMap;
@@ -137,22 +138,38 @@ impl GoGui {
             }
             if ui.button("Open SGF").clicked() {
                 if let Some(path) = rfd::FileDialog::new().pick_file() {
-                    match std::fs::read_to_string(&path) {
-                        Ok(s) => match parse(&s) {
-                            Ok(tree) => {
-                                self.record.load_sgf(tree);
-                                let info = self.record.get_game_info();
-                                self.info_black = info.black.unwrap_or_default();
-                                self.info_white = info.white.unwrap_or_default();
-                                self.info_date = info.date.unwrap_or_default();
-                                self.info_komi = info.komi.unwrap_or_default();
-                                self.info_result = info.result.unwrap_or_default();
+                    // 先用字节读取，再自动检测编码并解码
+                    match std::fs::read(&path) {
+                        Ok(bytes) => {
+                            // 如果文件为空，直接当作空字符串；否则检测编码
+                            let content = if bytes.is_empty() {
+                                String::new()
+                            } else {
+                                let mut detector =
+                                    chardetng::EncodingDetector::new(Iso2022JpDetection::Allow);
+                                detector.feed(&bytes, true); // true 表示已经是全部数据
+                                let encoding =
+                                    detector.guess(None, chardetng::Utf8Detection::Allow); // true 允许检测为 UTF-8
+                                let (cow, _had_errors) = encoding.decode_with_bom_removal(&bytes);
+                                cow.into_owned() // Cow<str> -> String
+                            };
+
+                            match parse(&content) {
+                                Ok(tree) => {
+                                    self.record.load_sgf(tree);
+                                    let info = self.record.get_game_info();
+                                    self.info_black = info.black.unwrap_or_default();
+                                    self.info_white = info.white.unwrap_or_default();
+                                    self.info_date = info.date.unwrap_or_default();
+                                    self.info_komi = info.komi.unwrap_or_default();
+                                    self.info_result = info.result.unwrap_or_default();
+                                }
+                                Err(e) => {
+                                    self.show_error_window = true;
+                                    self.error_message = format!("SGF parse error: {}", e);
+                                }
                             }
-                            Err(e) => {
-                                self.show_error_window = true;
-                                self.error_message = format!("SGF parse error: {}", e);
-                            }
-                        },
+                        }
                         Err(e) => {
                             self.show_error_window = true;
                             self.error_message = format!("Failed to read file: {}", e);
@@ -162,7 +179,10 @@ impl GoGui {
                 ui.close_menu();
             }
             if ui.button("Save As").clicked() {
-                if let Some(path) = rfd::FileDialog::new().save_file() {
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("sgf file", &["sgf"])
+                    .save_file()
+                {
                     let s = export(&self.record.tree);
                     let _ = std::fs::write(path, s);
                 }
