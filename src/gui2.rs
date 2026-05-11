@@ -304,7 +304,10 @@ impl GoGui {
                         let col = col_map.get(idx).copied().unwrap_or(0) as f32;
                         let x = origin.x + 12.0 + col * col_w;
                         let y = origin.y + 8.0 + info.depth as f32 * row_h;
-                        let node_rect = egui::Rect::from_min_size(egui::pos2(x, y), Vec2::new(dot_size + 8.0, dot_size + 8.0));
+                        let node_rect = egui::Rect::from_min_size(
+                            egui::pos2(x, y),
+                            Vec2::new(dot_size + 8.0, dot_size + 8.0),
+                        );
                         pos_map.insert(*idx, node_rect.center());
                         rect_map.insert(*idx, node_rect);
                     }
@@ -317,9 +320,18 @@ impl GoGui {
                                 let mid_y = (a.y + b.y) * 0.5;
                                 let p1 = egui::Pos2::new(a.x, mid_y);
                                 let p2 = egui::Pos2::new(b.x, mid_y);
-                                painter.line_segment([a, p1], Stroke::new(1.0, Color32::from_gray(160)));
-                                painter.line_segment([p1, p2], Stroke::new(1.0, Color32::from_gray(160)));
-                                painter.line_segment([p2, b], Stroke::new(1.0, Color32::from_gray(160)));
+                                painter.line_segment(
+                                    [a, p1],
+                                    Stroke::new(1.0, Color32::from_gray(160)),
+                                );
+                                painter.line_segment(
+                                    [p1, p2],
+                                    Stroke::new(1.0, Color32::from_gray(160)),
+                                );
+                                painter.line_segment(
+                                    [p2, b],
+                                    Stroke::new(1.0, Color32::from_gray(160)),
+                                );
                             }
                         }
                     }
@@ -327,18 +339,38 @@ impl GoGui {
                     // 绘制节点与交互（在连线之上）
                     for (idx, info) in &nodes_sorted {
                         let node_rect = rect_map.get(idx).copied().unwrap();
-                        let resp = ui.interact(node_rect, egui::Id::new(format!("node_{}", idx)), egui::Sense::click());
+                        let resp = ui.interact(
+                            node_rect,
+                            egui::Id::new(format!("node_{}", idx)),
+                            egui::Sense::click(),
+                        );
                         let center = node_rect.center();
                         if self.record.current == Some(*idx) {
-                            painter.rect_filled(node_rect.expand(4.0), 4.0, Color32::from_rgb(200, 230, 255));
+                            painter.rect_filled(
+                                node_rect.expand(4.0),
+                                4.0,
+                                Color32::from_rgb(200, 230, 255),
+                            );
                         }
                         match info.kind {
-                            1 => { painter.circle_filled(center, dot_size * 0.45, Color32::BLACK); }
+                            1 => {
+                                painter.circle_filled(center, dot_size * 0.45, Color32::BLACK);
+                            }
                             2 => {
                                 painter.circle_filled(center, dot_size * 0.45, Color32::WHITE);
-                                painter.circle_stroke(center, dot_size * 0.45, Stroke::new(1.0, Color32::BLACK));
+                                painter.circle_stroke(
+                                    center,
+                                    dot_size * 0.45,
+                                    Stroke::new(1.0, Color32::BLACK),
+                                );
                             }
-                            _ => { painter.circle_filled(center, dot_size * 0.25, Color32::from_gray(120)); }
+                            _ => {
+                                painter.circle_filled(
+                                    center,
+                                    dot_size * 0.25,
+                                    Color32::from_gray(120),
+                                );
+                            }
                         }
 
                         if resp.clicked() {
@@ -347,7 +379,13 @@ impl GoGui {
                         }
 
                         if let Some(c) = &info.comment {
-                            painter.text(egui::pos2(node_rect.right() + 6.0, node_rect.center().y - 6.0), egui::Align2::LEFT_TOP, c.clone(), egui::FontId::proportional(12.0), Color32::BLACK);
+                            painter.text(
+                                egui::pos2(node_rect.right() + 6.0, node_rect.center().y - 6.0),
+                                egui::Align2::LEFT_TOP,
+                                c.clone(),
+                                egui::FontId::proportional(12.0),
+                                Color32::BLACK,
+                            );
                         }
                     }
 
