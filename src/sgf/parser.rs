@@ -108,8 +108,8 @@ impl SgfParser {
             if c == ';' || c == '(' || c == ')' || c.is_whitespace() { break; }
             
             let name = self.parse_prop_name()?;
-            let prop = Property::from_str(&name)
-                .ok_or_else(|| ParseError::InvalidProperty(name.clone(), self.pos))?;
+            let prop = Property::from_str(&name);
+                    
             // 如果开启严格模式，未知属性（Other）视为错误
             if self.strict && !prop.is_known() {
                 return Err(ParseError::InvalidProperty(name.clone(), self.pos));
