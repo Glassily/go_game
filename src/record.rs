@@ -1,4 +1,4 @@
-use crate::board::Board;
+use crate::board::{Board, IllegalMoveError};
 use crate::model::{Color, Move, Point};
 use crate::sgf::{GameTree, Property};
 
@@ -10,6 +10,7 @@ pub struct GoRecord {
     pub white_captures: usize,
     history: Vec<GameTree>,
     future: Vec<GameTree>,
+    ko_point: Option<Point>,
 }
 
 impl GoRecord {
@@ -22,6 +23,7 @@ impl GoRecord {
             white_captures: 0,
             history: Vec::new(),
             future: Vec::new(),
+            ko_point: None,
         }
     }
 
@@ -91,6 +93,7 @@ impl GoRecord {
         self.board = Board::new(size);
         self.black_captures = 0;
         self.white_captures = 0;
+        self.ko_point = None;
 
         if idx.is_none() {
             return;
@@ -109,16 +112,18 @@ impl GoRecord {
                 if let Some(v) = node.get(Property::B) {
                     if let Some(s) = v.first() {
                         if let Some(mv) = property_str_to_move(s, Color::Black, size) {
-                            let (captured, _ko) = self.board.apply_move_uncheck(&mv);
-                            self.black_captures += captured.len();
+                            let (captured, ko) = self.board.apply_move_uncheck(&mv);
+                            self.black_captures += captured.len() as usize;
+                            self.ko_point = ko;
                         }
                     }
                 }
                 if let Some(v) = node.get(Property::W) {
                     if let Some(s) = v.first() {
                         if let Some(mv) = property_str_to_move(s, Color::White, size) {
-                            let (captured, _ko) = self.board.apply_move_uncheck(&mv);
-                            self.white_captures += captured.len();
+                            let (captured, ko) = self.board.apply_move_uncheck(&mv);
+                            self.white_captures += captured.len() as usize;
+                            self.ko_point = ko;
                         }
                     }
                 }
@@ -157,7 +162,18 @@ impl GoRecord {
         !self.future.is_empty()
     }
 
-    pub fn add_move(&mut self, mv: Move) {
+    pub fn add_move(&mut self, mv: Move) -> Result<(), IllegalMoveError> {
+        if let Err(e) = self.board.is_legal(&mv, self.ko_point, false) {
+            return Err(e);
+        }
+
+        let (captured, ko) = self.board.apply_move_uncheck(&mv);
+        match mv.color {
+            Color::Black => self.black_captures += captured.len() as usize,
+            Color::White => self.white_captures += captured.len() as usize,
+        }
+        self.ko_point = ko;
+
         self.push_snapshot();
         let mut map = std::collections::HashMap::new();
         let prop = match mv.color {
@@ -168,7 +184,7 @@ impl GoRecord {
         map.insert(prop, vec![pt_str]);
         let _ = self.tree.add_node(self.current, map);
         self.current = Some(self.tree.nodes.len() - 1);
-        self.rebuild_board_to(self.current);
+        Ok(())
     }
 
     pub fn next_to_move(&self) -> Color {

@@ -26,6 +26,8 @@ pub struct GoGui {
     show_info_window: bool,
     show_error_window: bool,
     error_message: String,
+    show_illegal_move_popup: bool,
+    illegal_move_error: Option<String>,
 }
 
 impl GoGui {
@@ -49,6 +51,8 @@ impl GoGui {
             show_info_window: false,
             show_error_window: false,
             error_message: String::new(),
+            show_illegal_move_popup: false,
+            illegal_move_error: None,
         }
     }
 }
@@ -82,6 +86,7 @@ impl eframe::App for GoGui {
         self.central_panel(ctx);
         self.info_window(ctx);
         self.error_window(ctx);
+        self.illegal_move_popup(ctx);
         self.context_menu(ctx);
     }
 }
@@ -255,7 +260,10 @@ impl GoGui {
                             {
                                 let next_color = self.record.next_to_move();
                                 let mv = Move::new(next_color, pt);
-                                self.record.add_move(mv);
+                                if let Err(e) = self.record.add_move(mv) {
+                                    self.show_illegal_move_popup = true;
+                                    self.illegal_move_error = Some(format!("{:?}", e));
+                                }
                             }
                         }
                     }
@@ -470,7 +478,10 @@ impl GoGui {
                         {
                             let next_color = self.record.next_to_move();
                             let mv = Move::new(next_color, pt);
-                            self.record.add_move(mv);
+                            if let Err(e) = self.record.add_move(mv) {
+                                self.show_illegal_move_popup = true;
+                                self.illegal_move_error = Some(format!("{:?}", e));
+                            }
                         }
                     }
                 }
@@ -607,6 +618,29 @@ impl GoGui {
                     if ui.button("OK").clicked() {
                         self.show_error_window = false;
                         self.error_message.clear();
+                    }
+                });
+            });
+    }
+
+    fn illegal_move_popup(&mut self, ctx: &egui::Context) {
+        if !self.show_illegal_move_popup {
+            return;
+        }
+
+        egui::Window::new("Illegal Move")
+            .collapsible(false)
+            .resizable(false)
+            .show(ctx, |ui| {
+                let msg = self
+                    .illegal_move_error
+                    .as_deref()
+                    .unwrap_or("Unknown error");
+                ui.label(msg);
+                ui.horizontal(|ui| {
+                    if ui.button("OK").clicked() {
+                        self.show_illegal_move_popup = false;
+                        self.illegal_move_error = None;
                     }
                 });
             });
