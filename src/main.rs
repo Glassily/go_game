@@ -1,6 +1,7 @@
 use eframe::NativeOptions;
 
 mod gui;
+mod gui2;
 
 fn main() {
     let options = NativeOptions::default();

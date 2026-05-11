@@ -15,6 +15,7 @@
 
 pub mod board;
 pub mod model;
+pub mod record;
 pub mod sgf;
 
 pub use board::{Board, IllegalMoveError};
