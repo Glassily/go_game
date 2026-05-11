@@ -324,7 +324,9 @@ impl eframe::App for GoApp {
         // 右侧树面板（固定占比宽度，不可调整），在 CentralPanel 之外定义以保证棋盘计算可用区域不被挤占
         if self.show_tree {
             let win_w = ctx.available_rect().width();
+            println!("Available width: {}", win_w);
             let panel_w = (win_w * 0.28).clamp(200.0, 420.0);
+            println!("Tree panel width: {}", panel_w);
             egui::SidePanel::right("right_panel")
                 .resizable(false)
                 .default_width(panel_w)
@@ -751,6 +753,18 @@ fn draw_board(
             );
         }
     }
+}
+
+fn draw_tree_panel(
+    ui: &mut egui::Ui, 
+    rect: egui::Rect,
+    tree: &GameTree, 
+    show_tree: bool,
+    current: Option<usize>
+) {
+    
+
+
 }
 
 fn screen_pos_to_point(rect: egui::Rect, pos: egui::Pos2, size: u8) -> Option<Point> {
