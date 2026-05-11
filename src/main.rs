@@ -1,6 +1,5 @@
 use eframe::NativeOptions;
 
-mod gui;
 mod gui2;
 
 fn main() {
@@ -8,6 +7,6 @@ fn main() {
     let _ = eframe::run_native(
         "Go Game - SGF Editor",
         options,
-        Box::new(|_cc| Ok(Box::new(gui::GoApp::new()))),
+        Box::new(|_cc| Ok(Box::new(gui2::GoGui::new()))),
     );
 }
