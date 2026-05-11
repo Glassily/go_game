@@ -187,7 +187,7 @@ impl Board {
     }
 
     /// 执行着法，返回: (被提掉的棋子, 新的劫点)
-    /// 
+    ///
     /// 带规则检测（原位操作，失败则回滚）
     pub fn apply_move(
         &mut self,
@@ -213,6 +213,17 @@ impl Board {
 
         // 记录所有修改 (点 -> 旧值) 以便回滚
         let mut changes: Vec<(Point, Option<Color>)> = Vec::new();
+
+        /// 回滚函数
+        fn rollback(board: &mut Board, changes: &[(Point, Option<Color>)]) {
+            // p：更改的位置，old：位置上原来的颜色
+            for &(p, old) in changes {
+                match old {
+                    Some(c) => board.set(p, c),
+                    None => board.remove(p),
+                }
+            }
+        }
 
         // 记录并落子
         changes.push((pt, None)); // 原来必为空
@@ -249,7 +260,7 @@ impl Board {
             let my_group = self.get_block(pt);
             if self.count_liberties(&my_group).is_empty() {
                 // 回滚
-                self.rollback(&changes);
+                rollback(self, &changes);
                 return Err(IllegalMoveError::Suicide);
             }
         }
@@ -263,7 +274,7 @@ impl Board {
                 if let Some(ko) = ko_point {
                     if pt == ko {
                         // 回滚
-                        self.rollback(&changes);
+                        rollback(self, &changes);
                         return Err(IllegalMoveError::KoViolation);
                     }
                 }
@@ -277,17 +288,6 @@ impl Board {
             };
 
             Ok((captured, new_ko))
-        }
-    }
-
-    /// 辅助函数：回滚棋盘修改
-    fn rollback(&mut self, changes: &[(Point, Option<Color>)]) {
-        // p：更改的位置，old：位置上原来的颜色
-        for &(p, old) in changes {
-            match old {
-                Some(c) => self.set(p, c),
-                None => self.remove(p),
-            }
         }
     }
 
@@ -316,7 +316,20 @@ impl Board {
     /// 文本可视化
     pub fn to_string(&self) -> String {
         let mut result = String::new();
-        self.write_coord(&mut result);
+        fn write_coord(result: &mut String, size: u8) {
+            result.push_str("   ");
+            for x in 0..size {
+                let c = if x >= 8 {
+                    (b'A' + x + 1) as char
+                } else {
+                    (b'A' + x) as char
+                };
+                result.push(c);
+                result.push(' ');
+            }
+            result.push('\n');
+        }
+        write_coord(&mut result, self.size);
         // 棋盘内容
         for y in 0..self.size {
             result.push_str(&format!("{:2} ", self.size - y));
@@ -332,21 +345,7 @@ impl Board {
             }
             result.push_str(&format!(" {}\n", self.size - y));
         }
-        self.write_coord(&mut result);
+        write_coord(&mut result, self.size);
         result
-    }
-
-    fn write_coord(&self, s: &mut String) {
-        s.push_str("   ");
-        for x in 0..self.size {
-            let c = if x >= 8 {
-                (b'A' + x + 1) as char
-            } else {
-                (b'A' + x) as char
-            };
-            s.push(c);
-            s.push(' ');
-        }
-        s.push('\n');
     }
 }
