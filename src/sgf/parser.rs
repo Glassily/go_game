@@ -68,13 +68,14 @@ impl SgfParser {
 
     fn parse_collection(&mut self) -> Result<()> {
         self.expect('(')?;
-        self.parse_game_tree()?;
+        // 为整个游戏树创建一个父节点栈，初始为 None
+        let mut parent_stack = vec![None];
+        self.parse_game_tree(&mut parent_stack)?;
         self.expect(')')?;
         Ok(())
     }
 
-    fn parse_game_tree(&mut self) -> Result<()> {
-        let mut parent_stack = vec![None];
+    fn parse_game_tree(&mut self, parent_stack: &mut Vec<Option<usize>>) -> Result<()> {
         loop {
             self.skip_ws();
             if self.pos >= self.input.len() {
@@ -95,13 +96,17 @@ impl SgfParser {
                             self.board_size = sz_val.parse().unwrap_or(19);
                         }
                     }
+                    // 更新栈顶为当前节点
                     *parent_stack.last_mut().unwrap() = Some(idx);
                 }
                 '(' => {
                     self.pos += 1;
+                    // 将当前父节点压栈，作为分支的父节点
                     parent_stack.push(*parent_stack.last().unwrap());
-                    self.parse_game_tree()?;
+                    // 递归解析分支内部，共享同一个栈
+                    self.parse_game_tree(parent_stack)?;
                     self.expect(')')?;
+                    // 分支结束，弹出
                     parent_stack.pop();
                 }
                 ')' => break,
