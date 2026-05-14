@@ -17,7 +17,7 @@ pub enum Property {
     HA,
     /// RU: Rules（对局规则）。字符串，如 "Japanese"、"Chinese"、"AGA" 等。
     RU,
-    
+
     // === 玩家信息 ===
     /// PB: Player Black（黑方棋手姓名）。字符串。
     PB,
@@ -31,7 +31,7 @@ pub enum Property {
     BT,
     /// WT: White Team（白方所属队伍/组织）。字符串。
     WT,
-    
+
     // === 对局信息 ===
     /// DT: Date（对局日期）。字符串，格式常为 "YYYY-MM-DD"。
     DT,
@@ -47,7 +47,7 @@ pub enum Property {
     GN,
     /// US: User（录入者或上传者）。字符串，表示创建或编辑该 SGF 文件的用户。
     US,
-    
+
     // === 棋步相关 ===
     /// B: Black move（黑方落子）。坐标字符串（如 "pd"）或空串表示放弃一手（pass）。
     B,
@@ -57,7 +57,7 @@ pub enum Property {
     TB,
     /// TW: Territory White（白方领地标记）。同 TB，用于白方。
     TW,
-    
+
     // === 摆子/让子 ===
     /// AB: Add Black（添加黑子）。坐标列表，用于在初始棋盘上放置黑子（如让子、习题局面）。
     AB,
@@ -67,7 +67,7 @@ pub enum Property {
     AW,
     /// PL: Player to play（当前轮到谁下）。值为 "B" 或 "W"，指定下一步由哪方走。
     PL,
-    
+
     // === 注释与标记 ===
     /// C: Comment（注释）。节点的文字说明，可包含多行文本。
     C,
@@ -91,7 +91,7 @@ pub enum Property {
     DO,
     /// IT: Interesting move（有趣的一手标记）。表示值得注意的、新颖或有趣的着手。
     IT,
-    
+
     // === 视觉标记 ===
     /// LB: Label（文本标签）。在棋盘上为指定交叉点添加字母、数字等文本标签，如 "A"、"1"。
     LB,
@@ -109,7 +109,7 @@ pub enum Property {
     LN,
     /// AR: Arrow（箭头）。绘制从一点指向另一点的箭头，用于表示发展方向或攻击路线。
     AR,
-    
+
     // === 变体与分支 ===
     /// V: Variation（变体/分支）。在当前位置提供一种变化图，可递归嵌套。
     V,
@@ -117,7 +117,7 @@ pub enum Property {
     N,
     /// MN: Move number（设置手数）。用于在节点上强制显示特定的手数，常用于分支或编辑局面。
     MN,
-    
+
     // === 时间与计时 ===
     /// TM: Time limit（基本时限）。基本用时，单位为秒。
     TM,
@@ -133,7 +133,7 @@ pub enum Property {
     OT,
     /// ON: Overtime parameters（加时参数）。具体数值，如读秒步数或每步时限，根据 OT 类型不同含义各异。
     ON,
-    
+
     // === 其他 ===
     /// AN: Annotation（注解者/来源注释）。提供棋谱注解的作者或分析者姓名。
     AN,
@@ -176,24 +176,77 @@ impl Property {
     pub fn from_str(s: &str) -> Self {
         use Property::*;
         match s {
-            "GM" => GM, "FF" => FF, "SZ" => SZ, "KM" => KM,
-            "HA" => HA, "RU" => RU, "PB" => PB, "PW" => PW,
-            "BR" => BR, "WR" => WR, "BT" => BT, "WT" => WT,
-            "DT" => DT, "EV" => EV, "RO" => RO, "PC" => PC,
-            "RE" => RE, "GN" => GN, "US" => US, "B"  => B,
-            "W"  => W,  "TB" => TB, "TW" => TW, "AB" => AB,
-            "AE" => AE, "AW" => AW, "PL" => PL, "C"  => C,
-            "DM" => DM, "GW" => GW, "GB" => GB, "GC" => GC,
-            "HO" => HO, "UC" => UC, "BM" => BM, "TE" => TE,
-            "DO" => DO, "IT" => IT, "LB" => LB, "SL" => SL,
-            "CR" => CR, "SQ" => SQ, "TR" => TR, "MA" => MA,
-            "LN" => LN, "AR" => AR, "V"  => V,  "N"  => N,
-            "MN" => MN, "TM" => TM, "BL" => BL, "WL" => WL,
-            "OB" => OB, "OW" => OW, "OT" => OT, "ON" => ON,
-            "AN" => AN, "AP" => AP, "CP" => CP, "SO" => SO,
-            "FG" => FG, "PM" => PM, "VW" => VW, "DD" => DD,
-            "ST" => ST, "SU" => SU, "IY" => IY, "KO" => KO,
-            "IP" => IP, "AS" => AS, "SE" => SE,
+            "GM" => GM,
+            "FF" => FF,
+            "SZ" => SZ,
+            "KM" => KM,
+            "HA" => HA,
+            "RU" => RU,
+            "PB" => PB,
+            "PW" => PW,
+            "BR" => BR,
+            "WR" => WR,
+            "BT" => BT,
+            "WT" => WT,
+            "DT" => DT,
+            "EV" => EV,
+            "RO" => RO,
+            "PC" => PC,
+            "RE" => RE,
+            "GN" => GN,
+            "US" => US,
+            "B" => B,
+            "W" => W,
+            "TB" => TB,
+            "TW" => TW,
+            "AB" => AB,
+            "AE" => AE,
+            "AW" => AW,
+            "PL" => PL,
+            "C" => C,
+            "DM" => DM,
+            "GW" => GW,
+            "GB" => GB,
+            "GC" => GC,
+            "HO" => HO,
+            "UC" => UC,
+            "BM" => BM,
+            "TE" => TE,
+            "DO" => DO,
+            "IT" => IT,
+            "LB" => LB,
+            "SL" => SL,
+            "CR" => CR,
+            "SQ" => SQ,
+            "TR" => TR,
+            "MA" => MA,
+            "LN" => LN,
+            "AR" => AR,
+            "V" => V,
+            "N" => N,
+            "MN" => MN,
+            "TM" => TM,
+            "BL" => BL,
+            "WL" => WL,
+            "OB" => OB,
+            "OW" => OW,
+            "OT" => OT,
+            "ON" => ON,
+            "AN" => AN,
+            "AP" => AP,
+            "CP" => CP,
+            "SO" => SO,
+            "FG" => FG,
+            "PM" => PM,
+            "VW" => VW,
+            "DD" => DD,
+            "ST" => ST,
+            "SU" => SU,
+            "IY" => IY,
+            "KO" => KO,
+            "IP" => IP,
+            "AS" => AS,
+            "SE" => SE,
             _ => Other(s.to_string()),
         }
     }
@@ -202,46 +255,108 @@ impl Property {
     pub fn name(&self) -> &str {
         use Property::*;
         match self {
-            GM => "GM", FF => "FF", SZ => "SZ", KM => "KM",
-            HA => "HA", RU => "RU", PB => "PB", PW => "PW",
-            BR => "BR", WR => "WR", BT => "BT", WT => "WT",
-            DT => "DT", EV => "EV", RO => "RO", PC => "PC",
-            RE => "RE", GN => "GN", US => "US", B  => "B",
-            W  => "W",  TB => "TB", TW => "TW", AB => "AB",
-            AE => "AE", AW => "AW", PL => "PL", C  => "C",
-            DM => "DM", GW => "GW", GB => "GB", GC => "GC",
-            HO => "HO", UC => "UC", BM => "BM", TE => "TE",
-            DO => "DO", IT => "IT", LB => "LB", SL => "SL",
-            CR => "CR", SQ => "SQ", TR => "TR", MA => "MA",
-            LN => "LN", AR => "AR", V  => "V",  N  => "N",
-            MN => "MN", TM => "TM", BL => "BL", WL => "WL",
-            OB => "OB", OW => "OW", OT => "OT", ON => "ON",
-            AN => "AN", AP => "AP", CP => "CP", SO => "SO",
-            FG => "FG", PM => "PM", VW => "VW", DD => "DD",
-            ST => "ST", SU => "SU", IY => "IY", KO => "KO",
-            IP => "IP", AS => "AS", SE => "SE",
+            GM => "GM",
+            FF => "FF",
+            SZ => "SZ",
+            KM => "KM",
+            HA => "HA",
+            RU => "RU",
+            PB => "PB",
+            PW => "PW",
+            BR => "BR",
+            WR => "WR",
+            BT => "BT",
+            WT => "WT",
+            DT => "DT",
+            EV => "EV",
+            RO => "RO",
+            PC => "PC",
+            RE => "RE",
+            GN => "GN",
+            US => "US",
+            B => "B",
+            W => "W",
+            TB => "TB",
+            TW => "TW",
+            AB => "AB",
+            AE => "AE",
+            AW => "AW",
+            PL => "PL",
+            C => "C",
+            DM => "DM",
+            GW => "GW",
+            GB => "GB",
+            GC => "GC",
+            HO => "HO",
+            UC => "UC",
+            BM => "BM",
+            TE => "TE",
+            DO => "DO",
+            IT => "IT",
+            LB => "LB",
+            SL => "SL",
+            CR => "CR",
+            SQ => "SQ",
+            TR => "TR",
+            MA => "MA",
+            LN => "LN",
+            AR => "AR",
+            V => "V",
+            N => "N",
+            MN => "MN",
+            TM => "TM",
+            BL => "BL",
+            WL => "WL",
+            OB => "OB",
+            OW => "OW",
+            OT => "OT",
+            ON => "ON",
+            AN => "AN",
+            AP => "AP",
+            CP => "CP",
+            SO => "SO",
+            FG => "FG",
+            PM => "PM",
+            VW => "VW",
+            DD => "DD",
+            ST => "ST",
+            SU => "SU",
+            IY => "IY",
+            KO => "KO",
+            IP => "IP",
+            AS => "AS",
+            SE => "SE",
             Other(s) => s.as_str(),
         }
     }
-    
+
     /// 判断是否为"着手"属性（产生棋步）
     pub fn is_move(self) -> bool {
         matches!(self, Property::B | Property::W)
     }
-    
+
     /// 判断是否为"摆子"属性
     pub fn is_setup(self) -> bool {
         matches!(self, Property::AB | Property::AW | Property::AE)
     }
-    
+
     /// 判断是否为"坐标"属性（值包含棋盘坐标）
     pub fn has_coord(self) -> bool {
-        matches!(self, 
-            Property::B | Property::W | 
-            Property::AB | Property::AW | Property::AE |
-            Property::LB | Property::SL | Property::CR | 
-            Property::SQ | Property::TR | Property::MA |
-            Property::AR | Property::LN
+        matches!(
+            self,
+            Property::B
+                | Property::W
+                | Property::AB
+                | Property::AW
+                | Property::AE
+                | Property::LB
+                | Property::SL
+                | Property::CR
+                | Property::SQ
+                | Property::TR
+                | Property::MA
+                | Property::AR
+                | Property::LN
         )
     }
 

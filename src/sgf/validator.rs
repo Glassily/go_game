@@ -249,12 +249,12 @@ impl SgfValidator {
                 return;
             }
         };
-    
+
         let mut current_board = board.clone();
         if is_root && handicap > 1 {
             next_turn = ModelColor::White;
         }
-    
+
         let mut seen = HashSet::new();
         for (prop, values) in &node.data {
             if !seen.insert(prop.clone()) {
@@ -269,7 +269,7 @@ impl SgfValidator {
                     node_idx: idx,
                 });
             }
-    
+
             match *prop {
                 Property::B | Property::W => {
                     let expected = if *prop == Property::B {
@@ -290,7 +290,7 @@ impl SgfValidator {
                             });
                         }
                     }
-    
+
                     let coord = values.first().map(|s| s.as_str()).unwrap_or("");
                     if coord.is_empty() {
                         if last_was_pass {
@@ -324,10 +324,12 @@ impl SgfValidator {
                                                 );
                                             }
                                             IllegalMoveError::Occupied => {
-                                                result.errors.push(ValidationError::PointOccupied {
-                                                    coord: coord.into(),
-                                                    node_idx: idx,
-                                                });
+                                                result.errors.push(
+                                                    ValidationError::PointOccupied {
+                                                        coord: coord.into(),
+                                                        node_idx: idx,
+                                                    },
+                                                );
                                             }
                                             // 劫、自杀、无效着法统一归为非法着法值
                                             IllegalMoveError::KoViolation
@@ -386,7 +388,7 @@ impl SgfValidator {
                 _ => {}
             }
         }
-    
+
         for &child in tree.get_children(idx) {
             self.validate_node(
                 tree,
