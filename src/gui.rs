@@ -342,185 +342,198 @@ impl GoGui {
                     egui::UiBuilder::new()
                         .layout(Layout::top_down(egui::Align::LEFT))
                         .sense(Sense::click())
-                        .max_rect(tree_rect), |ui| {
-                    ui.label("Game Tree");
+                        .max_rect(tree_rect),
+                    |ui| {
+                        ui.label("Game Tree");
 
-                    // tree_panel绘制
-                    let node_views: Vec<(usize, NodeInfo)> = self.record.all_nodes();
-                    let max_depth = node_views.iter().map(|t| t.1.depth).max().unwrap_or(0);
+                        // tree_panel绘制
+                        let node_views: Vec<(usize, NodeInfo)> = self.record.all_nodes();
+                        let max_depth = node_views.iter().map(|t| t.1.depth).max().unwrap_or(0);
 
-                    // 列分配
-                    let mut col_map: HashMap<usize, usize> = HashMap::new();
-                    let mut next_col: usize = 1;
-                    fn assign_cols(
-                        tree: &go_game::sgf::GameTree,
-                        idx: usize,
-                        col_map: &mut HashMap<usize, usize>,
-                        next_col: &mut usize,
-                        parent_col: usize,
-                    ) {
-                        if col_map.contains_key(&idx) {
-                            return;
-                        }
-                        col_map.insert(idx, parent_col);
-                        let children = tree.get_children(idx).to_vec();
-                        if children.is_empty() {
-                            return;
-                        }
-                        let mut iter = children.into_iter();
-                        if let Some(first) = iter.next() {
-                            assign_cols(tree, first, col_map, next_col, parent_col);
-                        }
-                        for c in iter {
-                            let this_col = *next_col;
-                            *next_col += 1;
-                            assign_cols(tree, c, col_map, next_col, this_col);
-                        }
-                    }
-                    if let Some(root) = self.record.tree.get_root() {
-                        assign_cols(&self.record.tree, root, &mut col_map, &mut next_col, 0);
-                    }
-
-                    let max_col = col_map.values().copied().max().unwrap_or(0);
-
-                    // 布局参数（更紧凑以适应子面板）
-                    let row_h = 36.0;
-                    let col_w = 40.0;
-                    let canvas_w = (max_col as f32 + 1.0) * col_w + 20.0;
-                    let canvas_h = (max_depth as f32 + 2.0) * row_h + 20.0;
-
-                    egui::ScrollArea::both().show_viewport(ui, |ui, _viewport| {
-                        // 限制最小宽度为 canvas_w，但不会超出子面板宽度
-                        ui.set_min_width(canvas_w.min(tree_w - 8.0));
-
-                        ui.allocate_space(Vec2::new(canvas_w, canvas_h));
-                        let origin = ui.min_rect().min;
-                        let painter = ui.painter();
-
-                        let mut nodes_sorted = node_views.clone();
-                        nodes_sorted.sort_by(|a, b| {
-                            a.1.depth.cmp(&b.1.depth).then_with(|| {
-                                let ca = col_map.get(&a.0).copied().unwrap_or(0);
-                                let cb = col_map.get(&b.0).copied().unwrap_or(0);
-                                ca.cmp(&cb)
-                            })
-                        });
-
-                        // 计算位置并缓存
-                        let dot_size = 12.0;
-                        let mut pos_map: HashMap<usize, egui::Pos2> = HashMap::new();
-                        let mut rect_map: HashMap<usize, egui::Rect> = HashMap::new();
-                        for (idx, info) in &nodes_sorted {
-                            let col = col_map.get(idx).copied().unwrap_or(0) as f32;
-                            let x = origin.x + 12.0 + col * col_w;
-                            let y = origin.y + 8.0 + info.depth as f32 * row_h;
-                            let node_rect = egui::Rect::from_min_size(
-                                egui::pos2(x, y),
-                                Vec2::new(dot_size + 8.0, dot_size + 8.0),
-                            );
-                            pos_map.insert(*idx, node_rect.center());
-                            rect_map.insert(*idx, node_rect);
-                        }
-
-                        // 绘制连线
-                        for (idx, _info) in &nodes_sorted {
-                            if let Some(parent) = self.record.tree.get_parent(*idx) {
-                                if let (Some(&a), Some(&b)) =
-                                    (pos_map.get(&parent), pos_map.get(idx))
-                                {
-                                    let mid_y = (a.y + b.y) * 0.5;
-                                    let p1 = egui::Pos2::new(a.x, mid_y);
-                                    let p2 = egui::Pos2::new(b.x, mid_y);
-                                    painter.line_segment(
-                                        [a, p1],
-                                        Stroke::new(1.0, Color32::from_gray(160)),
-                                    );
-                                    painter.line_segment(
-                                        [p1, p2],
-                                        Stroke::new(1.0, Color32::from_gray(160)),
-                                    );
-                                    painter.line_segment(
-                                        [p2, b],
-                                        Stroke::new(1.0, Color32::from_gray(160)),
-                                    );
-                                }
+                        // 列分配
+                        let mut col_map: HashMap<usize, usize> = HashMap::new();
+                        let mut next_col: usize = 1;
+                        fn assign_cols(
+                            tree: &go_game::sgf::GameTree,
+                            idx: usize,
+                            col_map: &mut HashMap<usize, usize>,
+                            next_col: &mut usize,
+                            parent_col: usize,
+                        ) {
+                            if col_map.contains_key(&idx) {
+                                return;
+                            }
+                            col_map.insert(idx, parent_col);
+                            let children = tree.get_children(idx).to_vec();
+                            if children.is_empty() {
+                                return;
+                            }
+                            let mut iter = children.into_iter();
+                            if let Some(first) = iter.next() {
+                                assign_cols(tree, first, col_map, next_col, parent_col);
+                            }
+                            for c in iter {
+                                let this_col = *next_col;
+                                *next_col += 1;
+                                assign_cols(tree, c, col_map, next_col, this_col);
                             }
                         }
-
-                        // 绘制节点
-                        for (idx, info) in &nodes_sorted {
-                            let node_rect = rect_map.get(idx).copied().unwrap();
-                            let resp = ui.interact(
-                                node_rect,
-                                egui::Id::new(format!("node_{}", idx)),
-                                egui::Sense::click(),
-                            );
-                            let center = node_rect.center();
-                            if self.record.current == Some(*idx) {
-                                painter.rect_filled(
-                                    node_rect.expand(4.0),
-                                    4.0,
-                                    Color32::from_rgb(200, 230, 255),
-                                );
-                            }
-                            match info.kind {
-                                1 => {
-                                    painter.circle_filled(center, dot_size * 0.45, Color32::BLACK);
-                                }
-                                2 => {
-                                    painter.circle_filled(center, dot_size * 0.45, Color32::WHITE);
-                                    painter.circle_stroke(
-                                        center,
-                                        dot_size * 0.45,
-                                        Stroke::new(1.0, Color32::BLACK),
-                                    );
-                                }
-                                _ => {
-                                    painter.circle_filled(
-                                        center,
-                                        dot_size * 0.25,
-                                        Color32::from_gray(120),
-                                    );
-                                }
-                            }
-
-                            if resp.clicked() {
-                                self.record.go_to(*idx);
-                                self.comment_edit = info.comment.clone().unwrap_or_default();
-                            }
-
-                            if let Some(c) = &info.comment {
-                                painter.text(
-                                    egui::pos2(node_rect.right() + 6.0, node_rect.center().y - 6.0),
-                                    egui::Align2::LEFT_TOP,
-                                    c.clone(),
-                                    egui::FontId::proportional(12.0),
-                                    Color32::BLACK,
-                                );
-                            }
+                        if let Some(root) = self.record.tree.get_root() {
+                            assign_cols(&self.record.tree, root, &mut col_map, &mut next_col, 0);
                         }
 
-                        // 评论面板
-                        if self.show_comment_panel {
-                            ui.separator();
-                            ui.label("Comment");
-                            ui.add(
-                                egui::TextEdit::multiline(&mut self.comment_edit).desired_rows(4),
-                            );
-                            ui.horizontal(|ui| {
-                                if ui.button("Save").clicked() {
-                                    if let Some(i) = self.record.current {
-                                        self.record.set_comment(i, self.comment_edit.clone());
-                                    }
-                                }
-                                if ui.button("Clear").clicked() {
-                                    self.comment_edit.clear();
-                                }
+                        let max_col = col_map.values().copied().max().unwrap_or(0);
+
+                        // 布局参数（更紧凑以适应子面板）
+                        let row_h = 36.0;
+                        let col_w = 40.0;
+                        let canvas_w = (max_col as f32 + 1.0) * col_w + 20.0;
+                        let canvas_h = (max_depth as f32 + 2.0) * row_h + 20.0;
+
+                        egui::ScrollArea::both().show_viewport(ui, |ui, _viewport| {
+                            // 限制最小宽度为 canvas_w，但不会超出子面板宽度
+                            ui.set_min_width(canvas_w.min(tree_w - 8.0));
+
+                            ui.allocate_space(Vec2::new(canvas_w, canvas_h));
+                            let origin = ui.min_rect().min;
+                            let painter = ui.painter();
+
+                            let mut nodes_sorted = node_views.clone();
+                            nodes_sorted.sort_by(|a, b| {
+                                a.1.depth.cmp(&b.1.depth).then_with(|| {
+                                    let ca = col_map.get(&a.0).copied().unwrap_or(0);
+                                    let cb = col_map.get(&b.0).copied().unwrap_or(0);
+                                    ca.cmp(&cb)
+                                })
                             });
 
-                        }
-                    });
-                });
+                            // 计算位置并缓存
+                            let dot_size = 12.0;
+                            let mut pos_map: HashMap<usize, egui::Pos2> = HashMap::new();
+                            let mut rect_map: HashMap<usize, egui::Rect> = HashMap::new();
+                            for (idx, info) in &nodes_sorted {
+                                let col = col_map.get(idx).copied().unwrap_or(0) as f32;
+                                let x = origin.x + 12.0 + col * col_w;
+                                let y = origin.y + 8.0 + info.depth as f32 * row_h;
+                                let node_rect = egui::Rect::from_min_size(
+                                    egui::pos2(x, y),
+                                    Vec2::new(dot_size + 8.0, dot_size + 8.0),
+                                );
+                                pos_map.insert(*idx, node_rect.center());
+                                rect_map.insert(*idx, node_rect);
+                            }
+
+                            // 绘制连线
+                            for (idx, _info) in &nodes_sorted {
+                                if let Some(parent) = self.record.tree.get_parent(*idx) {
+                                    if let (Some(&a), Some(&b)) =
+                                        (pos_map.get(&parent), pos_map.get(idx))
+                                    {
+                                        let mid_y = (a.y + b.y) * 0.5;
+                                        let p1 = egui::Pos2::new(a.x, mid_y);
+                                        let p2 = egui::Pos2::new(b.x, mid_y);
+                                        painter.line_segment(
+                                            [a, p1],
+                                            Stroke::new(1.0, Color32::from_gray(160)),
+                                        );
+                                        painter.line_segment(
+                                            [p1, p2],
+                                            Stroke::new(1.0, Color32::from_gray(160)),
+                                        );
+                                        painter.line_segment(
+                                            [p2, b],
+                                            Stroke::new(1.0, Color32::from_gray(160)),
+                                        );
+                                    }
+                                }
+                            }
+
+                            // 绘制节点
+                            for (idx, info) in &nodes_sorted {
+                                let node_rect = rect_map.get(idx).copied().unwrap();
+                                let resp = ui.interact(
+                                    node_rect,
+                                    egui::Id::new(format!("node_{}", idx)),
+                                    egui::Sense::click(),
+                                );
+                                let center = node_rect.center();
+                                if self.record.current == Some(*idx) {
+                                    painter.rect_filled(
+                                        node_rect.expand(4.0),
+                                        4.0,
+                                        Color32::from_rgb(200, 230, 255),
+                                    );
+                                }
+                                match info.kind {
+                                    1 => {
+                                        painter.circle_filled(
+                                            center,
+                                            dot_size * 0.45,
+                                            Color32::BLACK,
+                                        );
+                                    }
+                                    2 => {
+                                        painter.circle_filled(
+                                            center,
+                                            dot_size * 0.45,
+                                            Color32::WHITE,
+                                        );
+                                        painter.circle_stroke(
+                                            center,
+                                            dot_size * 0.45,
+                                            Stroke::new(1.0, Color32::BLACK),
+                                        );
+                                    }
+                                    _ => {
+                                        painter.circle_filled(
+                                            center,
+                                            dot_size * 0.25,
+                                            Color32::from_gray(120),
+                                        );
+                                    }
+                                }
+
+                                if resp.clicked() {
+                                    self.record.go_to(*idx);
+                                    self.comment_edit = info.comment.clone().unwrap_or_default();
+                                }
+
+                                if let Some(c) = &info.comment {
+                                    painter.text(
+                                        egui::pos2(
+                                            node_rect.right() + 6.0,
+                                            node_rect.center().y - 6.0,
+                                        ),
+                                        egui::Align2::LEFT_TOP,
+                                        c.clone(),
+                                        egui::FontId::proportional(12.0),
+                                        Color32::BLACK,
+                                    );
+                                }
+                            }
+
+                            // 评论面板
+                            if self.show_comment_panel {
+                                ui.separator();
+                                ui.label("Comment");
+                                ui.add(
+                                    egui::TextEdit::multiline(&mut self.comment_edit)
+                                        .desired_rows(4),
+                                );
+                                ui.horizontal(|ui| {
+                                    if ui.button("Save").clicked() {
+                                        if let Some(i) = self.record.current {
+                                            self.record.set_comment(i, self.comment_edit.clone());
+                                        }
+                                    }
+                                    if ui.button("Clear").clicked() {
+                                        self.comment_edit.clear();
+                                    }
+                                });
+                            }
+                        });
+                    },
+                );
             } else {
                 // 无树时保持原始棋盘居中显示
                 let board_size = avail.width().min(avail.height());
