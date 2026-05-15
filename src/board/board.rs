@@ -1,5 +1,8 @@
 use crate::model::{Color, Move, Point};
-use std::collections::{HashSet, VecDeque};
+use std::{
+    collections::{HashSet, VecDeque},
+    fmt::Display,
+};
 
 /// 围棋棋盘
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -347,5 +350,11 @@ impl Board {
         }
         write_coord(&mut result, self.size);
         result
+    }
+}
+
+impl Display for Board {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.to_string())
     }
 }

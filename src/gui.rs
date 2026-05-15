@@ -59,38 +59,6 @@ impl GoGui {
 }
 
 impl eframe::App for GoGui {
-    // fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-    //     ctx.input(|input| {
-    //         if input.key_pressed(egui::Key::ArrowLeft) {
-    //             self.record.go_prev();
-    //         }
-    //         if input.key_pressed(egui::Key::ArrowRight) {
-    //             self.record.go_next();
-    //         }
-    //         if input.key_pressed(egui::Key::Home) {
-    //             self.record.go_first();
-    //         }
-    //         if input.key_pressed(egui::Key::End) {
-    //             self.record.go_last();
-    //         }
-    //         if input.modifiers.ctrl && input.key_pressed(egui::Key::Z) {
-    //             if input.modifiers.shift {
-    //                 self.record.redo();
-    //             } else {
-    //                 self.record.undo();
-    //             }
-    //         }
-    //     });
-
-    //     self.top_panel(ctx);
-    //     self.status_bar(ctx);
-    //     self.central_panel(ctx);
-    //     self.info_window(ctx);
-    //     self.error_window(ctx);
-    //     self.illegal_move_popup(ctx);
-    //     self.context_menu(ctx);
-    // }
-
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         ui.input(|input| {
             if input.key_pressed(egui::Key::ArrowLeft) {

@@ -35,7 +35,6 @@ pub struct SgfParser {
     input: Vec<char>,
     pos: usize,
     tree: GameTree,
-    board_size: u8,
     strict: bool,
 }
 
@@ -45,7 +44,6 @@ impl SgfParser {
             input: input.chars().collect(),
             pos: 0,
             tree: GameTree::new(),
-            board_size: 19,
             strict: false,
         }
     }
@@ -90,11 +88,6 @@ impl SgfParser {
 
                     if self.tree.get_root().is_none() {
                         self.tree.root_index = Some(idx);
-                        // 解析 SZ
-                        if let Some(sz) = self.tree.get_node(idx).unwrap().get_first(Property::SZ) {
-                            let sz_val = sz.split(':').next().unwrap_or(sz);
-                            self.board_size = sz_val.parse().unwrap_or(19);
-                        }
                     }
                     // 更新栈顶为当前节点
                     *parent_stack.last_mut().unwrap() = Some(idx);

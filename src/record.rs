@@ -129,6 +129,8 @@ impl GoRecord {
                 }
             }
         }
+        println!("{}", self.board);
+        println!("{}", self.board.size);
     }
 
     fn push_snapshot(&mut self) {
@@ -314,6 +316,17 @@ impl GoRecord {
         self.push_snapshot();
         self.tree = tree;
         self.current = self.tree.get_root();
+        // 解析 SZ
+        if let Some(sz) = self
+            .tree
+            .get_node(self.current.unwrap())
+            .unwrap()
+            .get_first(Property::SZ)
+        {
+            let sz_val = sz.split(':').next().unwrap_or(sz);
+            let board_size = sz_val.parse().unwrap_or(19);
+            self.board = Board::new(board_size);
+        }
         self.rebuild_board_to(self.current);
     }
 
