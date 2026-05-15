@@ -1,6 +1,6 @@
 use chardetng::{self, Iso2022JpDetection};
 use eframe::egui;
-use egui::{Color32, Stroke, Vec2};
+use egui::{Color32, Layout, Sense, Stroke, Vec2};
 use std::collections::HashMap;
 
 use go_game::Board;
@@ -59,8 +59,40 @@ impl GoGui {
 }
 
 impl eframe::App for GoGui {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        ctx.input(|input| {
+    // fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    //     ctx.input(|input| {
+    //         if input.key_pressed(egui::Key::ArrowLeft) {
+    //             self.record.go_prev();
+    //         }
+    //         if input.key_pressed(egui::Key::ArrowRight) {
+    //             self.record.go_next();
+    //         }
+    //         if input.key_pressed(egui::Key::Home) {
+    //             self.record.go_first();
+    //         }
+    //         if input.key_pressed(egui::Key::End) {
+    //             self.record.go_last();
+    //         }
+    //         if input.modifiers.ctrl && input.key_pressed(egui::Key::Z) {
+    //             if input.modifiers.shift {
+    //                 self.record.redo();
+    //             } else {
+    //                 self.record.undo();
+    //             }
+    //         }
+    //     });
+
+    //     self.top_panel(ctx);
+    //     self.status_bar(ctx);
+    //     self.central_panel(ctx);
+    //     self.info_window(ctx);
+    //     self.error_window(ctx);
+    //     self.illegal_move_popup(ctx);
+    //     self.context_menu(ctx);
+    // }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        ui.input(|input| {
             if input.key_pressed(egui::Key::ArrowLeft) {
                 self.record.go_prev();
             }
@@ -81,22 +113,21 @@ impl eframe::App for GoGui {
                 }
             }
         });
-
-        self.top_panel(ctx);
-        self.status_bar(ctx);
-        self.central_panel(ctx);
-        self.info_window(ctx);
-        self.error_window(ctx);
-        self.illegal_move_popup(ctx);
-        self.context_menu(ctx);
+        self.top_panel(ui);
+        self.status_bar(ui);
+        self.central_panel(ui);
+        self.info_window(ui);
+        self.error_window(ui);
+        self.illegal_move_popup(ui);
+        self.context_menu(ui);
     }
 }
 
 impl GoGui {
     /// 菜单栏
-    fn top_panel(&mut self, ctx: &egui::Context) {
-        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-            egui::menu::bar(ui, |ui| {
+    fn top_panel(&mut self, ui: &mut egui::Ui) {
+        egui::Panel::top("top_panel").show_inside(ui, |ui| {
+            egui::MenuBar::new().ui(ui, |ui| {
                 self.file_menu(ui);
                 self.edit_menu(ui);
                 self.view_menu(ui);
@@ -134,7 +165,7 @@ impl GoGui {
                 self.info_date.clear();
                 self.info_komi.clear();
                 self.info_result.clear();
-                ui.close_menu();
+                ui.close();
             }
             if ui.button("Open SGF").clicked() {
                 if let Some(path) = rfd::FileDialog::new().pick_file() {
@@ -176,7 +207,7 @@ impl GoGui {
                         }
                     }
                 }
-                ui.close_menu();
+                ui.close();
             }
             if ui.button("Save As").clicked() {
                 if let Some(path) = rfd::FileDialog::new()
@@ -186,7 +217,7 @@ impl GoGui {
                     let s = export(&self.record.tree);
                     let _ = std::fs::write(path, s);
                 }
-                ui.close_menu();
+                ui.close();
             }
             if ui.button("Quit").clicked() {
                 std::process::exit(0);
@@ -198,11 +229,11 @@ impl GoGui {
         ui.menu_button("Edit", |ui| {
             if ui.button("Undo (Ctrl+Z)").clicked() {
                 self.record.undo();
-                ui.close_menu();
+                ui.close();
             }
             if ui.button("Redo (Ctrl+Shift+Z)").clicked() {
                 self.record.redo();
-                ui.close_menu();
+                ui.close();
             }
             if ui
                 .button(format!(
@@ -212,7 +243,7 @@ impl GoGui {
                 .clicked()
             {
                 self.edit_mode = !self.edit_mode;
-                ui.close_menu();
+                ui.close();
             }
         });
     }
@@ -238,8 +269,8 @@ impl GoGui {
         });
     }
 
-    fn central_panel(&mut self, ctx: &egui::Context) {
-        egui::CentralPanel::default().show(ctx, |ui| {
+    fn central_panel(&mut self, ui: &mut egui::Ui) {
+        egui::CentralPanel::default().show_inside(ui, |ui| {
             let avail = ui.available_rect_before_wrap();
 
             if self.show_tree {
@@ -260,51 +291,61 @@ impl GoGui {
                     egui::pos2(avail.right(), avail.bottom()),
                 );
 
-                ui.allocate_ui_at_rect(left_rect, |ui| {
-                    // 棋盘绘制（与之前逻辑相同）
-                    let avail_child = ui.available_rect_before_wrap();
-                    let board_size = avail_child.width().min(avail_child.height());
-                    let center = avail_child.center();
-                    let min_pos = center - Vec2::splat(board_size * 0.5);
-                    let board_rect = egui::Rect::from_min_size(min_pos, Vec2::splat(board_size));
+                ui.scope_builder(
+                    egui::UiBuilder::new()
+                        .sense(Sense::click())
+                        .max_rect(left_rect),
+                    |ui| {
+                        // 棋盘绘制
+                        let avail_child = ui.available_rect_before_wrap();
+                        let board_size = avail_child.width().min(avail_child.height());
+                        let center = avail_child.center();
+                        let min_pos = center - Vec2::splat(board_size * 0.5);
+                        let board_rect =
+                            egui::Rect::from_min_size(min_pos, Vec2::splat(board_size));
 
-                    let response = ui.allocate_rect(board_rect, egui::Sense::click());
-                    let board_rect = response.rect;
+                        let response = ui.allocate_rect(board_rect, egui::Sense::click());
+                        let board_rect = response.rect;
 
-                    draw_board(ui, board_rect, &self.record.board, self.show_coords);
+                        draw_board(ui, board_rect, &self.record.board, self.show_coords);
 
-                    if response.clicked() && self.edit_mode {
-                        if let Some(pos) = response.interact_pointer_pos() {
-                            if let Some(pt) =
-                                screen_pos_to_point(board_rect, pos, self.record.board_size())
-                            {
-                                let next_color = self.record.next_to_move();
-                                let mv = Move::new(next_color, pt);
-                                if let Err(e) = self.record.add_move(mv) {
-                                    self.show_illegal_move_popup = true;
-                                    self.illegal_move_error = Some(format!("{:?}", e));
+                        if response.clicked() && self.edit_mode {
+                            if let Some(pos) = response.interact_pointer_pos() {
+                                if let Some(pt) =
+                                    screen_pos_to_point(board_rect, pos, self.record.board_size())
+                                {
+                                    let next_color = self.record.next_to_move();
+                                    let mv = Move::new(next_color, pt);
+                                    if let Err(e) = self.record.add_move(mv) {
+                                        self.show_illegal_move_popup = true;
+                                        self.illegal_move_error = Some(format!("{:?}", e));
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    if response.secondary_clicked() {
-                        if let Some(pos) = response.interact_pointer_pos() {
-                            if let Some(pt) =
-                                screen_pos_to_point(board_rect, pos, self.record.board_size())
-                            {
-                                self.context_node = self.record.find_move_at_point(pt);
-                                self.context_pos = pos;
-                                self.show_context_window = true;
+                        if response.secondary_clicked() {
+                            if let Some(pos) = response.interact_pointer_pos() {
+                                if let Some(pt) =
+                                    screen_pos_to_point(board_rect, pos, self.record.board_size())
+                                {
+                                    self.context_node = self.record.find_move_at_point(pt);
+                                    self.context_pos = pos;
+                                    self.show_context_window = true;
+                                }
                             }
                         }
-                    }
-                });
+                    },
+                );
 
-                ui.allocate_ui_at_rect(tree_rect, |ui| {
+                ui.scope_builder(
+                    egui::UiBuilder::new()
+                        .layout(Layout::top_down(egui::Align::LEFT))
+                        .sense(Sense::click())
+                        .max_rect(tree_rect), |ui| {
                     ui.label("Game Tree");
 
-                    // 以下内容为原 tree_panel 中的绘制逻辑，已适配为在子 UI 中使用
+                    // tree_panel绘制
                     let node_views: Vec<(usize, NodeInfo)> = self.record.all_nodes();
                     let max_depth = node_views.iter().map(|t| t.1.depth).max().unwrap_or(0);
 
@@ -463,6 +504,9 @@ impl GoGui {
                         if self.show_comment_panel {
                             ui.separator();
                             ui.label("Comment");
+                            ui.add(
+                                egui::TextEdit::multiline(&mut self.comment_edit).desired_rows(4),
+                            );
                             ui.horizontal(|ui| {
                                 if ui.button("Save").clicked() {
                                     if let Some(i) = self.record.current {
@@ -473,9 +517,7 @@ impl GoGui {
                                     self.comment_edit.clear();
                                 }
                             });
-                            ui.add(
-                                egui::TextEdit::multiline(&mut self.comment_edit).desired_rows(4),
-                            );
+
                         }
                     });
                 });
@@ -521,8 +563,8 @@ impl GoGui {
         });
     }
 
-    fn status_bar(&mut self, ctx: &egui::Context) {
-        egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
+    fn status_bar(&mut self, ui: &mut egui::Ui) {
+        egui::Panel::bottom("status").show_inside(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(format!(
                     "Move: {}/{}",
@@ -682,13 +724,13 @@ impl GoGui {
                         self.record.go_to(idx);
                         self.context_node = None;
                         self.show_context_window = false;
-                        ui.close_menu();
+                        ui.close();
                     }
                 }
                 if ui.button("Cancel").clicked() {
                     self.context_node = None;
                     self.show_context_window = false;
-                    ui.close_menu();
+                    ui.close();
                 }
             });
     }
