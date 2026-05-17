@@ -34,7 +34,7 @@ pub struct GoGui {
 impl GoGui {
     pub fn new() -> Self {
         Self {
-            record: GoRecord::new(19),
+            record: GoRecord::default(),
             edit_mode: true,
             show_tree: true,
             show_coords: true,

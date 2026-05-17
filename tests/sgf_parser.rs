@@ -410,7 +410,7 @@ fn test_nested_variations_structure() {
 fn test_export_escape_chars() {
     let mut props = HashMap::new();
     props.insert(Property::C, vec!["a]b\nc\\d".into()]);
-    let tree = GameTree::with_root(props);
+    let tree = GameTree::from(props);
     let out = export(&tree);
     assert!(out.contains("\\]") || out.contains("\\n") || out.contains("\\\\"));
 }

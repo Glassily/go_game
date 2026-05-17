@@ -72,14 +72,6 @@ impl GameTree {
         }
     }
 
-    pub fn with_root(data: HashMap<Property, Vec<String>>) -> Self {
-        let mut t = Self::new();
-        let idx = t.nodes.len();
-        t.nodes.push(Node::new(data));
-        t.root_index = Some(idx);
-        t
-    }
-
     pub fn add_node(
         &mut self,
         parent: Option<usize>,
@@ -184,6 +176,16 @@ impl GameTree {
 impl Default for GameTree {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl From<HashMap<Property, Vec<String>>> for GameTree {
+    fn from(root_data: HashMap<Property, Vec<String>>) -> Self {
+        let mut t = Self::new();
+        let idx = t.nodes.len();
+        t.nodes.push(Node::new(root_data));
+        t.root_index = Some(idx);
+        t
     }
 }
 

@@ -13,6 +13,29 @@ pub struct GoRecord {
     ko_point: Option<Point>,
 }
 
+impl Default for GoRecord {
+    fn default() -> Self {
+        let mut root_data = std::collections::HashMap::new();
+        root_data.insert(Property::GM, vec!["1".to_string()]);
+        root_data.insert(Property::FF, vec!["4".to_string()]);
+        root_data.insert(Property::SZ, vec!["19".to_string()]);
+        root_data.insert(Property::RU, vec!["Japanese".to_string()]);
+        root_data.insert(Property::KM, vec!["6.5".to_string()]);
+        let tree = GameTree::from(root_data);
+
+        Self {
+            tree,
+            current: None,
+            board: Board::new(19),
+            black_captures: 0,
+            white_captures: 0,
+            history: Vec::new(),
+            future: Vec::new(),
+            ko_point: None,
+        }
+    }
+}
+
 impl GoRecord {
     pub fn new(size: u8) -> Self {
         Self {
@@ -129,8 +152,6 @@ impl GoRecord {
                 }
             }
         }
-        println!("{}", self.board);
-        println!("{}", self.board.size);
     }
 
     fn push_snapshot(&mut self) {
@@ -184,7 +205,8 @@ impl GoRecord {
         };
         let pt_str = mv.point.map(|p| p.to_sgf()).unwrap_or_default();
         map.insert(prop, vec![pt_str]);
-        let _ = self.tree.add_node(self.current, map);
+        let parent = self.current.or(self.tree.get_root());
+        let _ = self.tree.add_node(parent, map);
         self.current = Some(self.tree.nodes.len() - 1);
         Ok(())
     }
@@ -200,11 +222,15 @@ impl GoRecord {
                 }
                 n = p;
             }
-            if let Some(root) = self.tree.get_root() {
-                if let Some(node) = self.tree.get_node(root) {
-                    if node.contains(Property::B) || node.contains(Property::W) {
-                        count += 1;
-                    }
+            if let Some(node) = self.tree.get_node(n) {
+                if node.contains(Property::B) || node.contains(Property::W) {
+                    count += 1;
+                }
+            }
+        } else if let Some(root) = self.tree.get_root() {
+            if let Some(node) = self.tree.get_node(root) {
+                if node.contains(Property::B) || node.contains(Property::W) {
+                    count += 1;
                 }
             }
         }
@@ -310,6 +336,7 @@ impl GoRecord {
         self.tree = GameTree::new();
         self.current = None;
         self.rebuild_board_to(None);
+        todo!("创建具有设定值的对局")
     }
 
     pub fn load_sgf(&mut self, tree: GameTree) {
