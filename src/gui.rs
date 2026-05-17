@@ -24,6 +24,8 @@ pub struct GoGui {
     show_tree: bool,
     show_coords: bool,
     dark_theme: bool,
+    /// 是否显示下一步提示（半透明棋子）
+    show_next_moves: bool,
     comment_edit: String,
     show_comment_panel: bool,
     context_node: Option<usize>,
@@ -65,6 +67,7 @@ impl GoGui {
             show_tree: true,
             show_coords: true,
             dark_theme: false,
+            show_next_moves: true,
             comment_edit: String::new(),
             show_comment_panel: true,
             context_node: None,
@@ -285,6 +288,7 @@ impl GoGui {
             ui.checkbox(&mut self.show_tree, "Show game tree");
             ui.checkbox(&mut self.show_coords, "Show coordinates");
             ui.checkbox(&mut self.show_comment_panel, "Show comment panel");
+            ui.checkbox(&mut self.show_next_moves, "Show next moves");
         });
     }
 
@@ -332,7 +336,18 @@ impl GoGui {
                         let response = ui.allocate_rect(board_rect, egui::Sense::click());
                         let board_rect = response.rect;
 
-                        draw_board(ui, board_rect, &self.record.board, self.show_coords);
+                        let next_moves = if self.show_next_moves {
+                            self.record.get_variation_moves()
+                        } else {
+                            vec![]
+                        };
+                        draw_board(
+                            ui,
+                            board_rect,
+                            &self.record.board,
+                            self.show_coords,
+                            &next_moves,
+                        );
 
                         if response.clicked() && self.edit_mode {
                             if let Some(pos) = response.interact_pointer_pos() {
@@ -569,7 +584,18 @@ impl GoGui {
                 let response = ui.allocate_rect(board_rect, egui::Sense::click());
                 let board_rect = response.rect;
 
-                draw_board(ui, board_rect, &self.record.board, self.show_coords);
+                let next_moves = if self.show_next_moves {
+                    self.record.get_variation_moves()
+                } else {
+                    vec![]
+                };
+                draw_board(
+                    ui,
+                    board_rect,
+                    &self.record.board,
+                    self.show_coords,
+                    &next_moves,
+                );
 
                 if response.clicked() && self.edit_mode {
                     if let Some(pos) = response.interact_pointer_pos() {
@@ -1089,7 +1115,13 @@ fn decode_sgf_content(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).to_string()
 }
 
-fn draw_board(ui: &mut egui::Ui, rect: egui::Rect, board: &Board, show_coords: bool) {
+fn draw_board(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    board: &Board,
+    show_coords: bool,
+    next_moves: &[(go_game::model::Color, Point)],
+) {
     let painter = ui.painter_at(rect);
     let size = board.size as usize;
 
@@ -1169,9 +1201,32 @@ fn draw_board(ui: &mut egui::Ui, rect: egui::Rect, board: &Board, show_coords: b
         }
     }
 
+    // 绘制下一步提示（半透明棋子）
+    if !next_moves.is_empty() {
+        for &(col, pt) in next_moves {
+            let cx = drawing_rect.left() + pt.x as f32 * cell;
+            let cy = drawing_rect.top() + pt.y as f32 * cell;
+            let radius = cell * 0.42;
+            match col {
+                Color::Black => {
+                    let base = Color32::from_gray(10);
+                    painter.circle_filled(egui::pos2(cx, cy), radius, base.gamma_multiply(0.4));
+                }
+                Color::White => {
+                    let base = Color32::from_gray(240);
+                    painter.circle_filled(egui::pos2(cx, cy), radius, base.gamma_multiply(0.4));
+                    painter.circle_stroke(
+                        egui::pos2(cx, cy),
+                        radius,
+                        Stroke::new(1.0, Color32::GRAY),
+                    );
+                }
+            }
+        }
+    }
+
     if show_coords {
         let font_id = egui::FontId::proportional((cell * 0.35).max(1.0));
-        //下方坐标
         for x in 0..size {
             let cx = drawing_rect.left() + x as f32 * cell;
             let label = if x >= 8 {
@@ -1187,7 +1242,6 @@ fn draw_board(ui: &mut egui::Ui, rect: egui::Rect, board: &Board, show_coords: b
                 Color32::BLACK,
             );
         }
-        // 右边坐标
         for y in 0..size {
             let cy = drawing_rect.top() + y as f32 * cell;
             let label = (size - y).to_string();

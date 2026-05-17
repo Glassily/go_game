@@ -145,6 +145,55 @@ impl GoRecord {
         res
     }
 
+    /// 获取当前节点的子节点着法（变体提示）
+    ///
+    /// 返回所有子节点的着法位置和颜色
+    pub fn get_variation_moves(&self) -> Vec<(Color, Point)> {
+        let mut moves = Vec::new();
+        if let Some(c) = self.current {
+            for &child in self.tree.get_children(c) {
+                if let Some(node) = self.tree.get_node(child) {
+                    let size = self.board.size;
+                    if let Some(v) = node.get(&Property::B) {
+                        if let Some(s) = v.first() {
+                            if let Some(pt) = Point::from_sgf(s, size) {
+                                moves.push((Color::Black, pt));
+                            }
+                        }
+                    }
+                    if let Some(v) = node.get(&Property::W) {
+                        if let Some(s) = v.first() {
+                            if let Some(pt) = Point::from_sgf(s, size) {
+                                moves.push((Color::White, pt));
+                            }
+                        }
+                    }
+                }
+            }
+        } else if let Some(r) = self.tree.get_root() {
+            for &child in self.tree.get_children(r) {
+                if let Some(node) = self.tree.get_node(child) {
+                    let size = self.board.size;
+                    if let Some(v) = node.get(&Property::B) {
+                        if let Some(s) = v.first() {
+                            if let Some(pt) = Point::from_sgf(s, size) {
+                                moves.push((Color::Black, pt));
+                            }
+                        }
+                    }
+                    if let Some(v) = node.get(&Property::W) {
+                        if let Some(s) = v.first() {
+                            if let Some(pt) = Point::from_sgf(s, size) {
+                                moves.push((Color::White, pt));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        moves
+    }
+
     /// 重建棋盘到指定节点
     ///
     /// 重置棋盘状态，然后重放从根到目标节点的着法
@@ -169,7 +218,7 @@ impl GoRecord {
 
         for &i in &path {
             if let Some(node) = self.tree.get_node(i) {
-                if let Some(v) = node.get(Property::B) {
+                if let Some(v) = node.get(&Property::B) {
                     if let Some(s) = v.first() {
                         if let Some(mv) = property_str_to_move(s, Color::Black, size) {
                             let (captured, ko) = self.board.apply_move_uncheck(&mv);
@@ -178,7 +227,7 @@ impl GoRecord {
                         }
                     }
                 }
-                if let Some(v) = node.get(Property::W) {
+                if let Some(v) = node.get(&Property::W) {
                     if let Some(s) = v.first() {
                         if let Some(mv) = property_str_to_move(s, Color::White, size) {
                             let (captured, ko) = self.board.apply_move_uncheck(&mv);
@@ -230,6 +279,7 @@ impl GoRecord {
     /// 添加着法
     ///
     /// 检查着法合法性后添加到游戏树
+    /// 如果该着法已作为子节点存在，则导航到该分支而非创建新节点
     pub fn add_move(&mut self, mv: Move) -> Result<(), IllegalMoveError> {
         if let Err(e) = self.board.is_legal(&mv, self.ko_point, false) {
             return Err(e);
@@ -242,13 +292,44 @@ impl GoRecord {
         }
         self.ko_point = ko;
 
-        self.push_snapshot();
-        let mut map = std::collections::HashMap::new();
         let prop = match mv.color {
             Color::Black => Property::B,
             Color::White => Property::W,
         };
         let pt_str = mv.point.map(|p| p.to_sgf()).unwrap_or_default();
+
+        // 检查该着法是否已作为子节点存在
+        if let Some(cur) = self.current {
+            for &child in self.tree.get_children(cur) {
+                if let Some(node) = self.tree.get_node(child) {
+                    if let Some(v) = node.get(&prop) {
+                        if v.first().map(|s| s.as_str()) == Some(&pt_str) {
+                            // 该着法已存在，导航到该分支
+                            self.rebuild_board_to(Some(child));
+                            self.current = Some(child);
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+        } else if let Some(root) = self.tree.get_root() {
+            for &child in self.tree.get_children(root) {
+                if let Some(node) = self.tree.get_node(child) {
+                    if let Some(v) = node.get(&prop) {
+                        if v.first().map(|s| s.as_str()) == Some(&pt_str) {
+                            // 该着法已存在，导航到该分支
+                            self.rebuild_board_to(Some(child));
+                            self.current = Some(child);
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+        }
+
+        // 着法不存在，创建新节点
+        self.push_snapshot();
+        let mut map = std::collections::HashMap::new();
         map.insert(prop, vec![pt_str]);
         let parent = self.current.or(self.tree.get_root());
         let _ = self.tree.add_node(parent, map);
@@ -331,7 +412,7 @@ impl GoRecord {
     pub fn get_comment(&self, idx: usize) -> Option<String> {
         self.tree
             .get_node(idx)
-            .and_then(|n| n.get(Property::C).and_then(|v| v.first().cloned()))
+            .and_then(|n| n.get(&Property::C).and_then(|v| v.first().cloned()))
     }
 
     /// 设置指定节点的注释
@@ -351,22 +432,22 @@ impl GoRecord {
         let mut info = GameInfo::default();
         if let Some(root) = self.tree.get_root() {
             if let Some(node) = self.tree.get_node(root) {
-                info.black = node.get(Property::PB).and_then(|v| v.first().cloned());
-                info.white = node.get(Property::PW).and_then(|v| v.first().cloned());
-                info.black_rank = node.get(Property::BR).and_then(|v| v.first().cloned());
-                info.white_rank = node.get(Property::WR).and_then(|v| v.first().cloned());
-                info.event = node.get(Property::EV).and_then(|v| v.first().cloned());
-                info.round = node.get(Property::RO).and_then(|v| v.first().cloned());
-                info.place = node.get(Property::PC).and_then(|v| v.first().cloned());
-                info.date = node.get(Property::DT).and_then(|v| v.first().cloned());
-                info.komi = node.get(Property::KM).and_then(|v| v.first().cloned());
-                info.result = node.get(Property::RE).and_then(|v| v.first().cloned());
-                info.game_name = node.get(Property::GN).and_then(|v| v.first().cloned());
-                info.rules = node.get(Property::RU).and_then(|v| v.first().cloned());
-                info.handicap = node.get(Property::HA).and_then(|v| v.first().cloned());
-                info.black_team = node.get(Property::BT).and_then(|v| v.first().cloned());
-                info.white_team = node.get(Property::WT).and_then(|v| v.first().cloned());
-                info.user = node.get(Property::US).and_then(|v| v.first().cloned());
+                info.black = node.get(&Property::PB).and_then(|v| v.first().cloned());
+                info.white = node.get(&Property::PW).and_then(|v| v.first().cloned());
+                info.black_rank = node.get(&Property::BR).and_then(|v| v.first().cloned());
+                info.white_rank = node.get(&Property::WR).and_then(|v| v.first().cloned());
+                info.event = node.get(&Property::EV).and_then(|v| v.first().cloned());
+                info.round = node.get(&Property::RO).and_then(|v| v.first().cloned());
+                info.place = node.get(&Property::PC).and_then(|v| v.first().cloned());
+                info.date = node.get(&Property::DT).and_then(|v| v.first().cloned());
+                info.komi = node.get(&Property::KM).and_then(|v| v.first().cloned());
+                info.result = node.get(&Property::RE).and_then(|v| v.first().cloned());
+                info.game_name = node.get(&Property::GN).and_then(|v| v.first().cloned());
+                info.rules = node.get(&Property::RU).and_then(|v| v.first().cloned());
+                info.handicap = node.get(&Property::HA).and_then(|v| v.first().cloned());
+                info.black_team = node.get(&Property::BT).and_then(|v| v.first().cloned());
+                info.white_team = node.get(&Property::WT).and_then(|v| v.first().cloned());
+                info.user = node.get(&Property::US).and_then(|v| v.first().cloned());
             }
         }
         info
@@ -434,15 +515,15 @@ impl GoRecord {
         self.push_snapshot();
         self.tree = tree;
         self.current = self.tree.get_root();
-        if let Some(sz) = self
-            .tree
-            .get_node(self.current.unwrap())
-            .unwrap()
-            .get_first(Property::SZ)
-        {
-            let sz_val = sz.split(':').next().unwrap_or(sz);
-            let board_size = sz_val.parse().unwrap_or(19);
-            self.board = Board::new(board_size);
+        if let Some(idx) = self.current {
+            if let Some(node) = self.tree.get_node(idx) {
+                if let Some(sz) = node.get_first(Property::SZ) {
+                    let sz_val = sz.split(':').next().unwrap_or(sz);
+                    if let Ok(board_size) = sz_val.parse::<u8>() {
+                        self.board = Board::new(board_size);
+                    }
+                }
+            }
         }
         self.rebuild_board_to(self.current);
     }
@@ -454,12 +535,12 @@ impl GoRecord {
             if node.deleted {
                 continue;
             }
-            if let Some(v) = node.get(Property::B) {
+            if let Some(v) = node.get(&Property::B) {
                 if v.first().map(|s| s == &sgf_str).unwrap_or(false) {
                     return Some(i);
                 }
             }
-            if let Some(v) = node.get(Property::W) {
+            if let Some(v) = node.get(&Property::W) {
                 if v.first().map(|s| s == &sgf_str).unwrap_or(false) {
                     return Some(i);
                 }
@@ -478,7 +559,7 @@ impl GoRecord {
             if node.contains(Property::W) {
                 kind = 2;
             }
-            let comment = node.get(Property::C).and_then(|v| v.first().cloned());
+            let comment = node.get(&Property::C).and_then(|v| v.first().cloned());
             NodeInfo {
                 kind,
                 comment,

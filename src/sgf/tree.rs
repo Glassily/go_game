@@ -28,13 +28,13 @@ impl Node {
     }
 
     /// 获取指定属性的所有值
-    pub fn get(&self, prop: Property) -> Option<&Vec<String>> {
-        self.data.get(&prop)
+    pub fn get(&self, prop: &Property) -> Option<&Vec<String>> {
+        self.data.get(prop)
     }
 
     /// 获取指定属性的第一个值
     pub fn get_first(&self, prop: Property) -> Option<&String> {
-        self.get(prop)?.first()
+        self.get(&prop)?.first()
     }
 
     /// 设置属性值

@@ -70,7 +70,7 @@ impl<'a> SgfExporter<'a> {
             Property::C,
         ];
         for prop in &order {
-            if let Some(vals) = node.get(prop.clone()) {
+            if let Some(vals) = node.get(prop) {
                 self.write_prop(f, &prop.to_string(), vals)?;
             }
         }

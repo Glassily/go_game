@@ -60,7 +60,7 @@ fn test_parse_multi_value_properties() {
     let root = tree.get_root().unwrap();
     let node = tree.get_node(root).unwrap();
 
-    let ab_vals = node.get(Property::AB).unwrap();
+    let ab_vals = node.get(&Property::AB).unwrap();
     assert_eq!(ab_vals.len(), 3);
     assert!(ab_vals.contains(&"aa".to_string()));
     assert!(ab_vals.contains(&"bb".to_string()));
@@ -263,7 +263,7 @@ fn test_parse_setup_with_variations() {
 
     assert!(root_node.contains(Property::AB));
     assert!(root_node.contains(Property::AW));
-    let ab_vals = root_node.get(Property::AB).unwrap();
+    let ab_vals = root_node.get(&Property::AB).unwrap();
     assert!(ab_vals.contains(&"aa".to_string()));
     assert!(ab_vals.contains(&"bb".to_string()));
 
