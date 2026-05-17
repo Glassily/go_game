@@ -29,11 +29,22 @@ pub struct GoGui {
     context_node: Option<usize>,
     context_pos: egui::Pos2,
     show_context_window: bool,
+    info_game_name: String,
     info_black: String,
+    info_black_rank: String,
     info_white: String,
+    info_white_rank: String,
+    info_event: String,
+    info_round: String,
+    info_place: String,
     info_date: String,
     info_komi: String,
     info_result: String,
+    info_rules: String,
+    info_handicap: String,
+    info_black_team: String,
+    info_white_team: String,
+    info_user: String,
     show_info_window: bool,
     show_error_window: bool,
     error_message: String,
@@ -59,11 +70,22 @@ impl GoGui {
             context_node: None,
             context_pos: egui::pos2(0.0, 0.0),
             show_context_window: false,
+            info_game_name: String::new(),
             info_black: String::new(),
+            info_black_rank: String::new(),
             info_white: String::new(),
+            info_white_rank: String::new(),
+            info_event: String::new(),
+            info_round: String::new(),
+            info_place: String::new(),
             info_date: String::new(),
             info_komi: String::from("6.5"),
             info_result: String::new(),
+            info_rules: String::new(),
+            info_handicap: String::new(),
+            info_black_team: String::new(),
+            info_white_team: String::new(),
+            info_user: String::new(),
             show_info_window: false,
             show_error_window: false,
             error_message: String::new(),
@@ -189,11 +211,22 @@ impl GoGui {
                                 Ok(tree) => {
                                     self.record.load_sgf(tree);
                                     let info = self.record.get_game_info();
+                                    self.info_game_name = info.game_name.unwrap_or_default();
                                     self.info_black = info.black.unwrap_or_default();
+                                    self.info_black_rank = info.black_rank.unwrap_or_default();
                                     self.info_white = info.white.unwrap_or_default();
+                                    self.info_white_rank = info.white_rank.unwrap_or_default();
+                                    self.info_event = info.event.unwrap_or_default();
+                                    self.info_round = info.round.unwrap_or_default();
+                                    self.info_place = info.place.unwrap_or_default();
                                     self.info_date = info.date.unwrap_or_default();
                                     self.info_komi = info.komi.unwrap_or_default();
                                     self.info_result = info.result.unwrap_or_default();
+                                    self.info_rules = info.rules.unwrap_or_default();
+                                    self.info_handicap = info.handicap.unwrap_or_default();
+                                    self.info_black_team = info.black_team.unwrap_or_default();
+                                    self.info_white_team = info.white_team.unwrap_or_default();
+                                    self.info_user = info.user.unwrap_or_default();
                                 }
                                 Err(e) => {
                                     self.show_error_window = true;
@@ -612,11 +645,22 @@ impl GoGui {
                 ui.separator();
                 if ui.button("Game Info").clicked() {
                     let info = self.record.get_game_info();
+                    self.info_game_name = info.game_name.unwrap_or_default();
                     self.info_black = info.black.unwrap_or_default();
+                    self.info_black_rank = info.black_rank.unwrap_or_default();
                     self.info_white = info.white.unwrap_or_default();
+                    self.info_white_rank = info.white_rank.unwrap_or_default();
+                    self.info_event = info.event.unwrap_or_default();
+                    self.info_round = info.round.unwrap_or_default();
+                    self.info_place = info.place.unwrap_or_default();
                     self.info_date = info.date.unwrap_or_default();
                     self.info_komi = info.komi.unwrap_or_default();
                     self.info_result = info.result.unwrap_or_default();
+                    self.info_rules = info.rules.unwrap_or_default();
+                    self.info_handicap = info.handicap.unwrap_or_default();
+                    self.info_black_team = info.black_team.unwrap_or_default();
+                    self.info_white_team = info.white_team.unwrap_or_default();
+                    self.info_user = info.user.unwrap_or_default();
                     self.show_info_window = true;
                 }
             });
@@ -628,55 +672,207 @@ impl GoGui {
             return;
         }
 
-        egui::Window::new("Game Info").show(ctx, |ui| {
-            ui.label("Black:");
-            ui.text_edit_singleline(&mut self.info_black);
-            ui.label("White:");
-            ui.text_edit_singleline(&mut self.info_white);
-            ui.label("Date:");
-            ui.text_edit_singleline(&mut self.info_date);
-            ui.label("Komi:");
-            ui.text_edit_singleline(&mut self.info_komi);
-            ui.label("Result:");
-            ui.text_edit_singleline(&mut self.info_result);
+        egui::Window::new("Game Info")
+            .resizable(true)
+            .default_width(480.0)
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    ui.set_width(450.0);
 
-            ui.horizontal(|ui| {
-                if ui.button("Save").clicked() {
-                    let info = go_game::record::GameInfo {
-                        black: if self.info_black.is_empty() {
-                            None
-                        } else {
-                            Some(self.info_black.clone())
-                        },
-                        white: if self.info_white.is_empty() {
-                            None
-                        } else {
-                            Some(self.info_white.clone())
-                        },
-                        date: if self.info_date.is_empty() {
-                            None
-                        } else {
-                            Some(self.info_date.clone())
-                        },
-                        komi: if self.info_komi.is_empty() {
-                            None
-                        } else {
-                            Some(self.info_komi.clone())
-                        },
-                        result: if self.info_result.is_empty() {
-                            None
-                        } else {
-                            Some(self.info_result.clone())
-                        },
-                    };
-                    self.record.set_game_info(&info);
-                    self.show_info_window = false;
-                }
-                if ui.button("Cancel").clicked() {
-                    self.show_info_window = false;
-                }
+                    ui.heading("Game Info");
+                    ui.separator();
+
+                    ui.group(|ui| {
+                        ui.label("Title:");
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.info_game_name)
+                                .desired_width(400.0),
+                        );
+                        ui.horizontal(|ui| {
+                            ui.label("Event:");
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.info_event)
+                                    .desired_width(200.0),
+                            );
+                            ui.label("Round:");
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.info_round)
+                                    .desired_width(100.0),
+                            );
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Place:");
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.info_place)
+                                    .desired_width(200.0),
+                            );
+                            ui.label("Date:");
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.info_date)
+                                    .desired_width(140.0),
+                            );
+                        });
+                    });
+
+                    ui.add_space(10.0);
+
+                    ui.group(|ui| {
+                        ui.horizontal_top(|ui| {
+                            ui.vertical(|ui| {
+                                ui.label("Black:");
+                                ui.text_edit_singleline(&mut self.info_black);
+                                ui.label("Rank:");
+                                ui.text_edit_singleline(&mut self.info_black_rank);
+                                ui.label("Team:");
+                                ui.text_edit_singleline(&mut self.info_black_team);
+                            });
+                            ui.add_space(20.0);
+                            ui.vertical(|ui| {
+                                ui.label("White:");
+                                ui.text_edit_singleline(&mut self.info_white);
+                                ui.label("Rank:");
+                                ui.text_edit_singleline(&mut self.info_white_rank);
+                                ui.label("Team:");
+                                ui.text_edit_singleline(&mut self.info_white_team);
+                            });
+                        });
+                    });
+
+                    ui.add_space(10.0);
+
+                    ui.group(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.label("Rules:");
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.info_rules)
+                                    .desired_width(120.0),
+                            );
+                            ui.label("Komi:");
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.info_komi).desired_width(80.0),
+                            );
+                            ui.label("Handicap:");
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.info_handicap)
+                                    .desired_width(60.0),
+                            );
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Result:");
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.info_result)
+                                    .desired_width(200.0),
+                            );
+                        });
+                    });
+
+                    ui.add_space(10.0);
+
+                    ui.group(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.label("User:");
+                            ui.add(
+                                egui::TextEdit::singleline(&mut self.info_user)
+                                    .desired_width(350.0),
+                            );
+                        });
+                    });
+
+                    ui.add_space(15.0);
+
+                    ui.horizontal(|ui| {
+                        if ui.button("Save").clicked() {
+                            let info = go_game::record::GameInfo {
+                                game_name: if self.info_game_name.is_empty() {
+                                    None
+                                } else {
+                                    Some(self.info_game_name.clone())
+                                },
+                                black: if self.info_black.is_empty() {
+                                    None
+                                } else {
+                                    Some(self.info_black.clone())
+                                },
+                                black_rank: if self.info_black_rank.is_empty() {
+                                    None
+                                } else {
+                                    Some(self.info_black_rank.clone())
+                                },
+                                white: if self.info_white.is_empty() {
+                                    None
+                                } else {
+                                    Some(self.info_white.clone())
+                                },
+                                white_rank: if self.info_white_rank.is_empty() {
+                                    None
+                                } else {
+                                    Some(self.info_white_rank.clone())
+                                },
+                                event: if self.info_event.is_empty() {
+                                    None
+                                } else {
+                                    Some(self.info_event.clone())
+                                },
+                                round: if self.info_round.is_empty() {
+                                    None
+                                } else {
+                                    Some(self.info_round.clone())
+                                },
+                                place: if self.info_place.is_empty() {
+                                    None
+                                } else {
+                                    Some(self.info_place.clone())
+                                },
+                                date: if self.info_date.is_empty() {
+                                    None
+                                } else {
+                                    Some(self.info_date.clone())
+                                },
+                                komi: if self.info_komi.is_empty() {
+                                    None
+                                } else {
+                                    Some(self.info_komi.clone())
+                                },
+                                result: if self.info_result.is_empty() {
+                                    None
+                                } else {
+                                    Some(self.info_result.clone())
+                                },
+                                rules: if self.info_rules.is_empty() {
+                                    None
+                                } else {
+                                    Some(self.info_rules.clone())
+                                },
+                                handicap: if self.info_handicap.is_empty() {
+                                    None
+                                } else {
+                                    Some(self.info_handicap.clone())
+                                },
+                                black_team: if self.info_black_team.is_empty() {
+                                    None
+                                } else {
+                                    Some(self.info_black_team.clone())
+                                },
+                                white_team: if self.info_white_team.is_empty() {
+                                    None
+                                } else {
+                                    Some(self.info_white_team.clone())
+                                },
+                                user: if self.info_user.is_empty() {
+                                    None
+                                } else {
+                                    Some(self.info_user.clone())
+                                },
+                            };
+                            self.record.set_game_info(&info);
+                            self.show_info_window = false;
+                        }
+                        if ui.button("Cancel").clicked() {
+                            self.show_info_window = false;
+                        }
+                    });
+                });
             });
-        });
     }
 
     fn error_window(&mut self, ctx: &egui::Context) {
@@ -817,11 +1013,22 @@ impl GoGui {
                             vec![self.new_game_komi.clone()],
                         );
 
+                        self.info_game_name.clear();
                         self.info_black.clear();
+                        self.info_black_rank.clear();
                         self.info_white.clear();
+                        self.info_white_rank.clear();
+                        self.info_event.clear();
+                        self.info_round.clear();
+                        self.info_place.clear();
                         self.info_date.clear();
                         self.info_result.clear();
                         self.info_komi = self.new_game_komi.clone();
+                        self.info_rules = self.new_game_rules.clone();
+                        self.info_handicap.clear();
+                        self.info_black_team.clear();
+                        self.info_white_team.clear();
+                        self.info_user.clear();
                         close_dialog = true;
                     }
                     if ui.button("Cancel").clicked() {

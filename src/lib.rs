@@ -20,7 +20,7 @@ pub mod sgf;
 
 pub use board::{Board, IllegalMoveError};
 pub use model::{Color, Move, Point};
-pub use record::GoRecord;
+pub use record::{GameInfo, GoRecord};
 pub use sgf::{
     GameTree, Node, ParseError, Property, SgfExporter, SgfParser, SgfValidator, TreeError,
     ValidationError, ValidationResult,

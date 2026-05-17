@@ -314,9 +314,20 @@ impl GoRecord {
             if let Some(node) = self.tree.get_node(root) {
                 info.black = node.get(Property::PB).and_then(|v| v.first().cloned());
                 info.white = node.get(Property::PW).and_then(|v| v.first().cloned());
+                info.black_rank = node.get(Property::BR).and_then(|v| v.first().cloned());
+                info.white_rank = node.get(Property::WR).and_then(|v| v.first().cloned());
+                info.event = node.get(Property::EV).and_then(|v| v.first().cloned());
+                info.round = node.get(Property::RO).and_then(|v| v.first().cloned());
+                info.place = node.get(Property::PC).and_then(|v| v.first().cloned());
                 info.date = node.get(Property::DT).and_then(|v| v.first().cloned());
                 info.komi = node.get(Property::KM).and_then(|v| v.first().cloned());
                 info.result = node.get(Property::RE).and_then(|v| v.first().cloned());
+                info.game_name = node.get(Property::GN).and_then(|v| v.first().cloned());
+                info.rules = node.get(Property::RU).and_then(|v| v.first().cloned());
+                info.handicap = node.get(Property::HA).and_then(|v| v.first().cloned());
+                info.black_team = node.get(Property::BT).and_then(|v| v.first().cloned());
+                info.white_team = node.get(Property::WT).and_then(|v| v.first().cloned());
+                info.user = node.get(Property::US).and_then(|v| v.first().cloned());
             }
         }
         info
@@ -332,6 +343,21 @@ impl GoRecord {
                 if let Some(ref v) = info.white {
                     node.set(Property::PW, vec![v.clone()]);
                 }
+                if let Some(ref v) = info.black_rank {
+                    node.set(Property::BR, vec![v.clone()]);
+                }
+                if let Some(ref v) = info.white_rank {
+                    node.set(Property::WR, vec![v.clone()]);
+                }
+                if let Some(ref v) = info.event {
+                    node.set(Property::EV, vec![v.clone()]);
+                }
+                if let Some(ref v) = info.round {
+                    node.set(Property::RO, vec![v.clone()]);
+                }
+                if let Some(ref v) = info.place {
+                    node.set(Property::PC, vec![v.clone()]);
+                }
                 if let Some(ref v) = info.date {
                     node.set(Property::DT, vec![v.clone()]);
                 }
@@ -340,6 +366,24 @@ impl GoRecord {
                 }
                 if let Some(ref v) = info.result {
                     node.set(Property::RE, vec![v.clone()]);
+                }
+                if let Some(ref v) = info.game_name {
+                    node.set(Property::GN, vec![v.clone()]);
+                }
+                if let Some(ref v) = info.rules {
+                    node.set(Property::RU, vec![v.clone()]);
+                }
+                if let Some(ref v) = info.handicap {
+                    node.set(Property::HA, vec![v.clone()]);
+                }
+                if let Some(ref v) = info.black_team {
+                    node.set(Property::BT, vec![v.clone()]);
+                }
+                if let Some(ref v) = info.white_team {
+                    node.set(Property::WT, vec![v.clone()]);
+                }
+                if let Some(ref v) = info.user {
+                    node.set(Property::US, vec![v.clone()]);
                 }
             }
         }
@@ -435,7 +479,18 @@ pub struct NodeInfo {
 pub struct GameInfo {
     pub black: Option<String>,
     pub white: Option<String>,
+    pub black_rank: Option<String>,
+    pub white_rank: Option<String>,
+    pub event: Option<String>,
+    pub round: Option<String>,
+    pub place: Option<String>,
     pub date: Option<String>,
     pub komi: Option<String>,
     pub result: Option<String>,
+    pub game_name: Option<String>,
+    pub rules: Option<String>,
+    pub handicap: Option<String>,
+    pub black_team: Option<String>,
+    pub white_team: Option<String>,
+    pub user: Option<String>,
 }
