@@ -57,6 +57,8 @@ pub struct GoGui {
     new_game_rules: String,
     new_game_komi: String,
     new_game_komi_edited: bool,
+    /// 滚动计数器（用于滚轮每格走一步）
+    scroll_accumulator: f32,
 }
 
 impl GoGui {
@@ -99,6 +101,7 @@ impl GoGui {
             new_game_rules: String::from("Japanese"),
             new_game_komi: String::from("6.5"),
             new_game_komi_edited: false,
+            scroll_accumulator: 0.0,
         }
     }
 }
@@ -124,6 +127,15 @@ impl eframe::App for GoGui {
                 } else {
                     self.record.undo();
                 }
+            }
+            // 鼠标滚轮沿主线下前进/后退（滚轮每格走一步，每格约36度）
+            self.scroll_accumulator += input.smooth_scroll_delta.y;
+            if self.scroll_accumulator >= 36.0 {
+                self.record.go_next();
+                self.scroll_accumulator = 0.0;
+            } else if self.scroll_accumulator <= -36.0 {
+                self.record.go_prev();
+                self.scroll_accumulator = 0.0;
             }
         });
         self.top_panel(ui);
