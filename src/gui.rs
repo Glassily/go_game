@@ -26,6 +26,8 @@ pub struct GoGui {
     dark_theme: bool,
     /// 是否显示下一步提示（半透明棋子）
     show_next_moves: bool,
+    /// 是否显示棋子手数
+    show_move_numbers: bool,
     comment_edit: String,
     show_comment_panel: bool,
     context_node: Option<usize>,
@@ -70,6 +72,7 @@ impl GoGui {
             show_coords: true,
             dark_theme: false,
             show_next_moves: true,
+            show_move_numbers: true,
             comment_edit: String::new(),
             show_comment_panel: true,
             context_node: None,
@@ -301,6 +304,7 @@ impl GoGui {
             ui.checkbox(&mut self.show_coords, "Show coordinates");
             ui.checkbox(&mut self.show_comment_panel, "Show comment panel");
             ui.checkbox(&mut self.show_next_moves, "Show next moves");
+            ui.checkbox(&mut self.show_move_numbers, "Show move numbers");
         });
     }
 
@@ -353,12 +357,21 @@ impl GoGui {
                         } else {
                             vec![]
                         };
+                        let last_move = self.record.get_current_move_info().map(|(c, p, _)| (p, c));
+                        let moves_to_show = if self.show_move_numbers {
+                            self.record.get_moves_to_current()
+                        } else {
+                            vec![]
+                        };
                         draw_board(
                             ui,
                             board_rect,
                             &self.record.board,
                             self.show_coords,
                             &next_moves,
+                            last_move,
+                            self.show_move_numbers,
+                            &moves_to_show,
                         );
 
                         if response.clicked() && self.edit_mode {
@@ -601,12 +614,21 @@ impl GoGui {
                 } else {
                     vec![]
                 };
+                let last_move = self.record.get_current_move_info().map(|(c, p, _)| (p, c));
+                let moves_to_show = if self.show_move_numbers {
+                    self.record.get_moves_to_current()
+                } else {
+                    vec![]
+                };
                 draw_board(
                     ui,
                     board_rect,
                     &self.record.board,
                     self.show_coords,
                     &next_moves,
+                    last_move,
+                    self.show_move_numbers,
+                    &moves_to_show,
                 );
 
                 if response.clicked() && self.edit_mode {
@@ -1133,6 +1155,9 @@ fn draw_board(
     board: &Board,
     show_coords: bool,
     next_moves: &[(go_game::model::Color, Point)],
+    last_move: Option<(Point, Color)>,
+    show_move_numbers: bool,
+    moves_to_show: &[(Color, Point, usize)],
 ) {
     let painter = ui.painter_at(rect);
     let size = board.size as usize;
@@ -1234,6 +1259,39 @@ fn draw_board(
                     );
                 }
             }
+        }
+    }
+
+    // 绘制最后落子高亮（红色圆圈）和手数
+    for &(col, pt, move_num) in moves_to_show {
+        let cx = drawing_rect.left() + pt.x as f32 * cell;
+        let cy = drawing_rect.top() + pt.y as f32 * cell;
+        let radius = cell * 0.42;
+        // 绘制红色边框标记最后落子
+        if last_move.map(|(lp, _)| lp == pt).unwrap_or(false) {
+            painter.circle_stroke(
+                egui::pos2(cx, cy),
+                radius * 1.15,
+                Stroke::new(2.0, Color32::from_rgb(220, 50, 50)),
+            );
+        }
+        // 绘制手数
+        if show_move_numbers {
+            let text = move_num.to_string();
+            let font_size = (cell * 0.4).max(8.0);
+            let font_id = egui::FontId::proportional(font_size);
+            let text_color = if col == Color::Black {
+                Color32::WHITE
+            } else {
+                Color32::BLACK
+            };
+            painter.text(
+                egui::pos2(cx, cy),
+                egui::Align2::CENTER_CENTER,
+                text,
+                font_id,
+                text_color,
+            );
         }
     }
 

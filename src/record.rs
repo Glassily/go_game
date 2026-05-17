@@ -403,6 +403,109 @@ impl GoRecord {
         self.mainline().len()
     }
 
+    /// 获取当前着法的位置和手数
+    ///
+    /// 返回 (棋子颜色, 位置, 手数)
+    pub fn get_current_move_info(&self) -> Option<(Color, Point, usize)> {
+        let idx = self.current?;
+        let node = self.tree.get_node(idx)?;
+        let mut move_number = 0usize;
+        if let Some(c) = self.current {
+            let mut n = Some(c);
+            while let Some(i) = n {
+                if let Some(node) = self.tree.get_node(i) {
+                    if node.contains(Property::B) || node.contains(Property::W) {
+                        move_number += 1;
+                    }
+                }
+                n = self.tree.get_parent(i);
+            }
+        }
+        if let Some(v) = node.get(&Property::B) {
+            if let Some(s) = v.first() {
+                if let Some(pt) = Point::from_sgf(s, self.board.size) {
+                    return Some((Color::Black, pt, move_number));
+                }
+            }
+        }
+        if let Some(v) = node.get(&Property::W) {
+            if let Some(s) = v.first() {
+                if let Some(pt) = Point::from_sgf(s, self.board.size) {
+                    return Some((Color::White, pt, move_number));
+                }
+            }
+        }
+        None
+    }
+
+    /// 获取所有着法的位置和手数
+    ///
+    /// 返回 Vec<(棋子颜色, 位置, 手数)>
+    pub fn get_all_moves(&self) -> Vec<(Color, Point, usize)> {
+        let mut moves = Vec::new();
+        let mut move_number = 0usize;
+        for idx in self.mainline() {
+            if let Some(node) = self.tree.get_node(idx) {
+                if let Some(v) = node.get(&Property::B) {
+                    if let Some(s) = v.first() {
+                        if let Some(pt) = Point::from_sgf(s, self.board.size) {
+                            move_number += 1;
+                            moves.push((Color::Black, pt, move_number));
+                        }
+                    }
+                }
+                if let Some(v) = node.get(&Property::W) {
+                    if let Some(s) = v.first() {
+                        if let Some(pt) = Point::from_sgf(s, self.board.size) {
+                            move_number += 1;
+                            moves.push((Color::White, pt, move_number));
+                        }
+                    }
+                }
+            }
+        }
+        moves
+    }
+
+    /// 获取从根到当前位置的所有着法（包括当前位置）
+    ///
+    /// 返回 Vec<(棋子颜色, 位置, 手数)>
+    pub fn get_moves_to_current(&self) -> Vec<(Color, Point, usize)> {
+        let mut moves = Vec::new();
+        let mut move_number = 0usize;
+        if let Some(cur) = self.current {
+            let mut path = Vec::new();
+            let mut idx = cur;
+            while let Some(parent) = self.tree.get_parent(idx) {
+                path.push(idx);
+                idx = parent;
+            }
+            path.push(idx);
+            path.reverse();
+            for &node_idx in &path {
+                if let Some(node) = self.tree.get_node(node_idx) {
+                    if let Some(v) = node.get(&Property::B) {
+                        if let Some(s) = v.first() {
+                            if let Some(pt) = Point::from_sgf(s, self.board.size) {
+                                move_number += 1;
+                                moves.push((Color::Black, pt, move_number));
+                            }
+                        }
+                    }
+                    if let Some(v) = node.get(&Property::W) {
+                        if let Some(s) = v.first() {
+                            if let Some(pt) = Point::from_sgf(s, self.board.size) {
+                                move_number += 1;
+                                moves.push((Color::White, pt, move_number));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        moves
+    }
+
     /// 获取所有节点数量
     pub fn node_count(&self) -> usize {
         self.tree.nodes.iter().filter(|n| !n.deleted).count()
