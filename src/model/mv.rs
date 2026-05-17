@@ -2,12 +2,14 @@ use std::fmt::Display;
 
 use crate::model::{Color, Point};
 
-/// 一手棋 (None 表示 Pass)
+/// 围棋着法结构体
 ///
-/// `color` 字段表示该着法的执行方，而非游戏状态的"当前轮到谁"。
+/// 表示围棋中的一步棋，可以是落子或 Pass
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Move {
+    /// 执行着法的一方颜色
     pub color: Color,
+    /// 落子位置，None 表示 Pass
     pub point: Option<Point>,
 }
 
@@ -25,7 +27,9 @@ impl Move {
         }
     }
 
-    /// 创建落子着法（带边界验证）
+    /// 创建带边界验证的着法
+    ///
+    /// 仅当落子位置在棋盘范围内时才创建成功
     pub fn new_valid(color: Color, point: Point, board_size: u8) -> Option<Self> {
         if point.is_valid(board_size) {
             Some(Self {
@@ -37,11 +41,14 @@ impl Move {
         }
     }
 
-    /// 是否为 Pass
+    /// 判断是否为 Pass
     pub fn is_pass(&self) -> bool {
         self.point.is_none()
     }
 
+    /// 转换为 GTP 格式字符串
+    ///
+    /// 格式为 `{color}@{point}` 或 `{color}:pass`
     pub fn to_string_gtp(&self, board_size: u8) -> String {
         match self.point {
             Some(pt) => format!("{}@{}", self.color, pt.to_gtp(board_size)),

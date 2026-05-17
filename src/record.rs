@@ -2,14 +2,25 @@ use crate::board::{Board, IllegalMoveError};
 use crate::model::{Color, Move, Point};
 use crate::sgf::{GameTree, Property};
 
+/// 围棋对局记录结构
+///
+/// 包含完整的游戏树、当前节点位置、棋盘状态、提子计数等信息
 pub struct GoRecord {
+    /// 游戏树（包含所有节点和着法）
     pub tree: GameTree,
+    /// 当前节点索引
     pub current: Option<usize>,
+    /// 棋盘状态
     pub board: Board,
+    /// 黑方提子数（白方被吃的子数）
     pub black_captures: usize,
+    /// 白方提子数（黑方被吃的子数）
     pub white_captures: usize,
+    /// 历史版本栈（用于撤销）
     history: Vec<GameTree>,
+    /// 未来版本栈（用于重做）
     future: Vec<GameTree>,
+    /// 当前劫点位置
     ko_point: Option<Point>,
 }
 
@@ -37,6 +48,7 @@ impl Default for GoRecord {
 }
 
 impl GoRecord {
+    /// 创建指定大小的空对局记录
     pub fn new(size: u8) -> Self {
         let mut root_data = std::collections::HashMap::new();
         root_data.insert(Property::GM, vec!["1".to_string()]);
@@ -56,6 +68,7 @@ impl GoRecord {
         }
     }
 
+    /// 设置根节点属性
     pub fn set_root_property(&mut self, prop: Property, values: Vec<String>) {
         if let Some(root) = self.tree.get_root() {
             if let Some(node) = self.tree.get_node_mut(root) {
@@ -64,10 +77,12 @@ impl GoRecord {
         }
     }
 
+    /// 获取棋盘大小
     pub fn board_size(&self) -> u8 {
         self.board.size
     }
 
+    /// 移动到上一个节点
     pub fn go_prev(&mut self) {
         if let Some(c) = self.current {
             self.current = self.tree.get_parent(c);
@@ -75,6 +90,7 @@ impl GoRecord {
         }
     }
 
+    /// 移动到下一个节点（主变体）
     pub fn go_next(&mut self) {
         if let Some(c) = self.current {
             let ch = self.tree.get_children(c);
@@ -88,11 +104,13 @@ impl GoRecord {
         }
     }
 
+    /// 移动到第一个节点
     pub fn go_first(&mut self) {
         self.current = self.tree.get_root();
         self.rebuild_board_to(self.current);
     }
 
+    /// 移动到最后一个节点（主变体末端）
     pub fn go_last(&mut self) {
         let mut cur = self.tree.get_root();
         while let Some(c) = cur {
@@ -106,11 +124,13 @@ impl GoRecord {
         self.rebuild_board_to(self.current);
     }
 
+    /// 移动到指定节点
     pub fn go_to(&mut self, idx: usize) {
         self.current = Some(idx);
         self.rebuild_board_to(self.current);
     }
 
+    /// 获取主变体路径上的所有节点索引
     pub fn mainline(&self) -> Vec<usize> {
         let mut res = Vec::new();
         let mut cur = self.tree.get_root();
@@ -125,6 +145,9 @@ impl GoRecord {
         res
     }
 
+    /// 重建棋盘到指定节点
+    ///
+    /// 重置棋盘状态，然后重放从根到目标节点的着法
     pub fn rebuild_board_to(&mut self, idx: Option<usize>) {
         let size = self.board.size;
         self.board = Board::new(size);
@@ -168,11 +191,13 @@ impl GoRecord {
         }
     }
 
+    /// 保存当前状态快照
     fn push_snapshot(&mut self) {
         self.history.push(self.tree.clone());
         self.future.clear();
     }
 
+    /// 撤销操作
     pub fn undo(&mut self) {
         if let Some(prev) = self.history.pop() {
             self.future.push(self.tree.clone());
@@ -182,6 +207,7 @@ impl GoRecord {
         }
     }
 
+    /// 重做操作
     pub fn redo(&mut self) {
         if let Some(next) = self.future.pop() {
             self.history.push(self.tree.clone());
@@ -191,14 +217,19 @@ impl GoRecord {
         }
     }
 
+    /// 判断是否可以撤销
     pub fn can_undo(&self) -> bool {
         !self.history.is_empty()
     }
 
+    /// 判断是否可以重做
     pub fn can_redo(&self) -> bool {
         !self.future.is_empty()
     }
 
+    /// 添加着法
+    ///
+    /// 检查着法合法性后添加到游戏树
     pub fn add_move(&mut self, mv: Move) -> Result<(), IllegalMoveError> {
         if let Err(e) = self.board.is_legal(&mv, self.ko_point, false) {
             return Err(e);
@@ -225,6 +256,7 @@ impl GoRecord {
         Ok(())
     }
 
+    /// 获取下一步该谁走
     pub fn next_to_move(&self) -> Color {
         let mut count = 0usize;
         if let Some(mut n) = self.current {
@@ -255,6 +287,7 @@ impl GoRecord {
         }
     }
 
+    /// 获取节点的深度（根节点深度为 1）
     pub fn node_depth(&self, idx: usize) -> usize {
         let mut d = 0;
         let mut cur = Some(idx);
@@ -267,6 +300,7 @@ impl GoRecord {
         d
     }
 
+    /// 获取当前节点的手数
     pub fn current_move_number(&self) -> usize {
         let mut cnt = 0usize;
         if let Some(c) = self.current {
@@ -283,20 +317,24 @@ impl GoRecord {
         cnt
     }
 
+    /// 获取主变体总手数
     pub fn total_moves(&self) -> usize {
         self.mainline().len()
     }
 
+    /// 获取所有节点数量
     pub fn node_count(&self) -> usize {
         self.tree.nodes.iter().filter(|n| !n.deleted).count()
     }
 
+    /// 获取指定节点的注释
     pub fn get_comment(&self, idx: usize) -> Option<String> {
         self.tree
             .get_node(idx)
             .and_then(|n| n.get(Property::C).and_then(|v| v.first().cloned()))
     }
 
+    /// 设置指定节点的注释
     pub fn set_comment(&mut self, idx: usize, comment: String) {
         self.push_snapshot();
         if let Some(node) = self.tree.get_node_mut(idx) {
@@ -308,6 +346,7 @@ impl GoRecord {
         }
     }
 
+    /// 获取对局信息
     pub fn get_game_info(&self) -> GameInfo {
         let mut info = GameInfo::default();
         if let Some(root) = self.tree.get_root() {
@@ -333,6 +372,7 @@ impl GoRecord {
         info
     }
 
+    /// 设置对局信息
     pub fn set_game_info(&mut self, info: &GameInfo) {
         self.push_snapshot();
         if let Some(root) = self.tree.get_root() {
@@ -389,11 +429,11 @@ impl GoRecord {
         }
     }
 
+    /// 加载 SGF 游戏树
     pub fn load_sgf(&mut self, tree: GameTree) {
         self.push_snapshot();
         self.tree = tree;
         self.current = self.tree.get_root();
-        // 解析 SZ
         if let Some(sz) = self
             .tree
             .get_node(self.current.unwrap())
@@ -407,6 +447,7 @@ impl GoRecord {
         self.rebuild_board_to(self.current);
     }
 
+    /// 查找指定位置的着法节点
     pub fn find_move_at_point(&self, pt: Point) -> Option<usize> {
         let sgf_str = pt.to_sgf();
         for (i, node) in self.tree.nodes.iter().enumerate().rev() {
@@ -427,6 +468,7 @@ impl GoRecord {
         None
     }
 
+    /// 获取指定节点的详细信息
     pub fn get_node_info(&self, idx: usize) -> Option<NodeInfo> {
         self.tree.get_node(idx).map(|node| {
             let mut kind = 0u8;
@@ -445,6 +487,7 @@ impl GoRecord {
         })
     }
 
+    /// 获取所有节点的（索引，节点信息）列表
     pub fn all_nodes(&self) -> Vec<(usize, NodeInfo)> {
         self.tree
             .nodes
@@ -460,6 +503,7 @@ impl GoRecord {
     }
 }
 
+/// 将 SGF 属性字符串转换为着法
 fn property_str_to_move(s: &str, color: Color, board_size: u8) -> Option<Move> {
     if s.is_empty() {
         Some(Move::pass(color))
@@ -468,29 +512,50 @@ fn property_str_to_move(s: &str, color: Color, board_size: u8) -> Option<Move> {
     }
 }
 
+/// 节点信息结构
 #[derive(Debug, Clone)]
 pub struct NodeInfo {
+    /// 节点类型：0=无着法，1=黑，2=白
     pub kind: u8,
+    /// 注释内容
     pub comment: Option<String>,
+    /// 节点深度
     pub depth: usize,
 }
 
+/// 对局信息结构
 #[derive(Debug, Clone, Default)]
 pub struct GameInfo {
+    /// 黑方棋手
     pub black: Option<String>,
+    /// 白方棋手
     pub white: Option<String>,
+    /// 黑方段位
     pub black_rank: Option<String>,
+    /// 白方段位
     pub white_rank: Option<String>,
+    /// 赛事名称
     pub event: Option<String>,
+    /// 轮次
     pub round: Option<String>,
+    /// 对局地点
     pub place: Option<String>,
+    /// 对局日期
     pub date: Option<String>,
+    /// 贴目
     pub komi: Option<String>,
+    /// 对局结果
     pub result: Option<String>,
+    /// 棋谱名称
     pub game_name: Option<String>,
+    /// 规则
     pub rules: Option<String>,
+    /// 让子数
     pub handicap: Option<String>,
+    /// 黑方队伍
     pub black_team: Option<String>,
+    /// 白方队伍
     pub white_team: Option<String>,
+    /// 录入者
     pub user: Option<String>,
 }

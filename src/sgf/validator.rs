@@ -4,90 +4,95 @@ use crate::sgf::tree::GameTree;
 use crate::{Board, IllegalMoveError, Move};
 use std::collections::HashSet;
 
+/// SGF 验证错误类型
 #[derive(Debug, Clone, PartialEq)]
 pub enum ValidationError {
-    InvalidBoardSize {
-        value: String,
-        node_idx: usize,
-    },
+    /// 无效的棋盘大小
+    InvalidBoardSize { value: String, node_idx: usize },
+    /// 坐标超出边界
     CoordinateOutOfBounds {
         coord: String,
         board_size: u8,
         node_idx: usize,
     },
-    PointOccupied {
-        coord: String,
-        node_idx: usize,
-    },
+    /// 位置已被占用
+    PointOccupied { coord: String, node_idx: usize },
+    /// 落子顺序错误
     TurnOrderViolation {
         expected: ModelColor,
         actual: ModelColor,
         node_idx: usize,
     },
-    HandicapFirstMoveMustBeWhite {
-        node_idx: usize,
-    },
-    DoublePassWithoutResult {
-        node_idx: usize,
-    },
+    /// 让子棋局第一步必须为白棋
+    HandicapFirstMoveMustBeWhite { node_idx: usize },
+    /// 连续两个 Pass 但没有对局结果
+    DoublePassWithoutResult { node_idx: usize },
+    /// 无效的属性值
     InvalidPropertyValue {
         prop: String,
         value: String,
         node_idx: usize,
     },
-    MissingRequiredProperty {
-        prop: String,
-        node_idx: usize,
-    },
-    NonStandardBoardSize {
-        value: u8,
-        node_idx: usize,
-    },
-    UnknownProperty {
-        prop: String,
-        node_idx: usize,
-    },
-    DuplicateProperty {
-        prop: String,
-        node_idx: usize,
-    },
-    SetupOverwritesStone {
-        coord: String,
-        node_idx: usize,
-    },
+    /// 缺少必需属性
+    MissingRequiredProperty { prop: String, node_idx: usize },
+    /// 非标准棋盘大小（警告）
+    NonStandardBoardSize { value: u8, node_idx: usize },
+    /// 未知属性（警告）
+    UnknownProperty { prop: String, node_idx: usize },
+    /// 重复属性（警告）
+    DuplicateProperty { prop: String, node_idx: usize },
+    /// 摆子覆盖了已有棋子
+    SetupOverwritesStone { coord: String, node_idx: usize },
+    /// 空游戏树
     EmptyTree,
-    InvalidNodeReference {
-        index: usize,
-        context: String,
-    },
+    /// 无效的节点引用
+    InvalidNodeReference { index: usize, context: String },
 }
 
+/// 验证结果结构
 #[derive(Debug, Default)]
 pub struct ValidationResult {
+    /// 错误列表（导致验证失败）
     pub errors: Vec<ValidationError>,
+    /// 警告列表（不影响验证通过）
     pub warnings: Vec<ValidationError>,
 }
+
 impl ValidationResult {
+    /// 判断验证是否通过
     pub fn is_valid(&self) -> bool {
         self.errors.is_empty()
     }
+
+    /// 判断是否有警告
     pub fn has_warnings(&self) -> bool {
         !self.warnings.is_empty()
     }
 }
 
+/// SGF 格式验证器
 pub struct SgfValidator {
+    /// 是否启用严格模式
     strict: bool,
 }
+
 impl SgfValidator {
+    /// 创建新的验证器
     pub fn new() -> Self {
         Self { strict: false }
     }
+
+    /// 启用严格模式
+    ///
+    /// 严格模式下，未知属性将被报告为警告
     pub fn strict(mut self) -> Self {
         self.strict = true;
         self
     }
 
+    /// 验证游戏树
+    ///
+    /// 检查棋盘大小、着法顺序、劫规则等
     pub fn validate(&self, tree: &GameTree) -> ValidationResult {
         let mut result = ValidationResult::default();
         let root_idx = match tree.get_root() {
@@ -104,7 +109,6 @@ impl SgfValidator {
         };
 
         let initial_board = Board::new(board_size);
-        // 应用根节点摆子
         let mut board =
             self.apply_setup(&initial_board, tree.get_node(root_idx).unwrap(), board_size);
         board = self.apply_handicap(&board, handicap);
@@ -129,6 +133,9 @@ impl SgfValidator {
         result
     }
 
+    /// 解析根节点元数据
+    ///
+    /// 提取棋盘大小和让子数
     fn parse_root_metadata(
         &self,
         tree: &GameTree,
@@ -165,6 +172,7 @@ impl SgfValidator {
         Ok((board_size, handicap))
     }
 
+    /// 应用初始摆子（AB/AW/AE）
     fn apply_setup(&self, board: &Board, node: &crate::sgf::tree::Node, size: u8) -> Board {
         let mut b = board.clone();
         for (prop, values) in &node.data {
@@ -190,8 +198,10 @@ impl SgfValidator {
         b
     }
 
+    /// 应用让子
+    ///
+    /// 在星位放置黑子
     fn apply_handicap(&self, board: &Board, handicap: u8) -> Board {
-        // 让子位置预设 (简化: 星位)
         if handicap <= 1 {
             return board.clone();
         }
@@ -206,8 +216,10 @@ impl SgfValidator {
         b
     }
 
+    /// 获取让子点坐标
+    ///
+    /// 返回星位坐标列表
     fn get_handicap_points(&self, handicap: u8, size: u8) -> Vec<Point> {
-        // 简化: 返回星位坐标
         let mut pts = Vec::new();
         let stars = [
             (3, 3),
@@ -226,6 +238,9 @@ impl SgfValidator {
         pts
     }
 
+    /// 验证单个节点
+    ///
+    /// 递归验证节点及其子节点
     fn validate_node(
         &self,
         tree: &GameTree,
@@ -299,52 +314,44 @@ impl SgfValidator {
                                 .push(ValidationError::DoublePassWithoutResult { node_idx: idx });
                         }
                         last_was_pass = true;
-                        ko_point = None; // pass 清除劫点
+                        ko_point = None;
                     } else {
                         last_was_pass = false;
                         match Point::from_sgf(coord, board_size) {
                             Some(pt) => {
-                                // 直接使用 apply_move，由其完成所有合法性检查
                                 let mv = Move::new(expected, pt);
                                 match current_board.apply_move(&mv, ko_point, false) {
                                     Ok((_captured, new_ko)) => {
-                                        // 着法合法，棋盘已更新，劫点更新
                                         ko_point = new_ko;
                                     }
-                                    Err(e) => {
-                                        // 将棋步违规映射为具体验证错误
-                                        match e {
-                                            IllegalMoveError::OutOfBounds => {
-                                                result.errors.push(
-                                                    ValidationError::CoordinateOutOfBounds {
-                                                        coord: coord.into(),
-                                                        board_size,
-                                                        node_idx: idx,
-                                                    },
-                                                );
-                                            }
-                                            IllegalMoveError::Occupied => {
-                                                result.errors.push(
-                                                    ValidationError::PointOccupied {
-                                                        coord: coord.into(),
-                                                        node_idx: idx,
-                                                    },
-                                                );
-                                            }
-                                            // 劫、自杀、无效着法统一归为非法着法值
-                                            IllegalMoveError::KoViolation
-                                            | IllegalMoveError::Suicide
-                                            | IllegalMoveError::InvalidMove => {
-                                                result.errors.push(
-                                                    ValidationError::InvalidPropertyValue {
-                                                        prop: prop.to_string(),
-                                                        value: coord.into(),
-                                                        node_idx: idx,
-                                                    },
-                                                );
-                                            }
+                                    Err(e) => match e {
+                                        IllegalMoveError::OutOfBounds => {
+                                            result.errors.push(
+                                                ValidationError::CoordinateOutOfBounds {
+                                                    coord: coord.into(),
+                                                    board_size,
+                                                    node_idx: idx,
+                                                },
+                                            );
                                         }
-                                    }
+                                        IllegalMoveError::Occupied => {
+                                            result.errors.push(ValidationError::PointOccupied {
+                                                coord: coord.into(),
+                                                node_idx: idx,
+                                            });
+                                        }
+                                        IllegalMoveError::KoViolation
+                                        | IllegalMoveError::Suicide
+                                        | IllegalMoveError::InvalidMove => {
+                                            result.errors.push(
+                                                ValidationError::InvalidPropertyValue {
+                                                    prop: prop.to_string(),
+                                                    value: coord.into(),
+                                                    node_idx: idx,
+                                                },
+                                            );
+                                        }
+                                    },
                                 }
                             }
                             None => {
@@ -405,6 +412,7 @@ impl SgfValidator {
         }
     }
 }
+
 impl Default for SgfValidator {
     fn default() -> Self {
         Self::new()

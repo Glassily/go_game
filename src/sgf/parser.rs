@@ -2,12 +2,18 @@ use crate::sgf::property::Property;
 use crate::sgf::tree::{GameTree, TreeError};
 use std::collections::HashMap;
 
+/// SGF 解析错误类型
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParseError {
+    /// 输入意外结束
     Eof,
+    /// 遇到无效字符
     InvalidChar(char, usize),
+    /// 属性值未正确终止（缺少右括号）
     UnterminatedValue(usize),
+    /// 未知的属性名
     InvalidProperty(String, usize),
+    /// 树结构错误
     TreeError(TreeError),
 }
 
@@ -29,16 +35,23 @@ impl From<TreeError> for ParseError {
     }
 }
 
+/// 解析结果类型别名
 pub type Result<T> = std::result::Result<T, ParseError>;
 
+/// SGF 格式解析器
 pub struct SgfParser {
+    /// 输入字符序列
     input: Vec<char>,
+    /// 当前解析位置
     pos: usize,
+    /// 解析出的游戏树
     tree: GameTree,
+    /// 是否启用严格模式（未知属性视为错误）
     strict: bool,
 }
 
 impl SgfParser {
+    /// 创建新的解析器
     pub fn new(input: &str) -> Self {
         Self {
             input: input.chars().collect(),
@@ -48,12 +61,15 @@ impl SgfParser {
         }
     }
 
-    /// Enable strict parsing: unknown property names are treated as errors.
+    /// 启用严格解析模式
+    ///
+    /// 未知属性名将被视为错误而非忽略
     pub fn strict(mut self) -> Self {
         self.strict = true;
         self
     }
 
+    /// 执行解析
     pub fn parse(mut self) -> Result<GameTree> {
         self.skip_ws();
         self.parse_collection()?;
@@ -64,15 +80,16 @@ impl SgfParser {
         Ok(self.tree)
     }
 
+    /// 解析 SGF 集合（顶层结构）
     fn parse_collection(&mut self) -> Result<()> {
         self.expect('(')?;
-        // 为整个游戏树创建一个父节点栈，初始为 None
         let mut parent_stack = vec![None];
         self.parse_game_tree(&mut parent_stack)?;
         self.expect(')')?;
         Ok(())
     }
 
+    /// 递归解析游戏树
     fn parse_game_tree(&mut self, parent_stack: &mut Vec<Option<usize>>) -> Result<()> {
         loop {
             self.skip_ws();
@@ -89,17 +106,13 @@ impl SgfParser {
                     if self.tree.get_root().is_none() {
                         self.tree.root_index = Some(idx);
                     }
-                    // 更新栈顶为当前节点
                     *parent_stack.last_mut().unwrap() = Some(idx);
                 }
                 '(' => {
                     self.pos += 1;
-                    // 将当前父节点压栈，作为分支的父节点
                     parent_stack.push(*parent_stack.last().unwrap());
-                    // 递归解析分支内部，共享同一个栈
                     self.parse_game_tree(parent_stack)?;
                     self.expect(')')?;
-                    // 分支结束，弹出
                     parent_stack.pop();
                 }
                 ')' => break,
@@ -109,6 +122,7 @@ impl SgfParser {
         Ok(())
     }
 
+    /// 解析属性列表
     fn parse_properties(&mut self) -> Result<HashMap<Property, Vec<String>>> {
         let mut props = HashMap::new();
         loop {
@@ -124,7 +138,6 @@ impl SgfParser {
             let name = self.parse_prop_name()?;
             let prop = Property::from_str(&name);
 
-            // 如果开启严格模式，未知属性（Other）视为错误
             if self.strict && !prop.is_known() {
                 return Err(ParseError::InvalidProperty(name.clone(), self.pos));
             }
@@ -139,6 +152,7 @@ impl SgfParser {
         Ok(props)
     }
 
+    /// 解析属性名（大写字母序列）
     fn parse_prop_name(&mut self) -> Result<String> {
         let start = self.pos;
         while self.pos < self.input.len() && self.input[self.pos].is_ascii_uppercase() {
@@ -153,6 +167,7 @@ impl SgfParser {
         Ok(self.input[start..self.pos].iter().collect())
     }
 
+    /// 解析属性值（方括号内的内容）
     fn parse_prop_value(&mut self) -> Result<String> {
         self.expect('[')?;
         let start = self.pos;
@@ -173,6 +188,14 @@ impl SgfParser {
         Err(ParseError::UnterminatedValue(start))
     }
 
+    /// 处理转义字符
+    ///
+    /// SGF 中的转义序列：
+    /// - `\n` → 换行
+    /// - `\t` → 制表符
+    /// - `\]` → 右括号
+    /// - `\\` → 反斜杠
+    /// - `\` 后跟换行 → 忽略
     fn unescape(raw: &[char]) -> String {
         let mut out = String::with_capacity(raw.len());
         let mut i = 0;
@@ -184,7 +207,7 @@ impl SgfParser {
                         't' => out.push('\t'),
                         ']' => out.push(']'),
                         '\\' => out.push('\\'),
-                        '\n' => {} // SGF: ignore escaped newline
+                        '\n' => {}
                         c => {
                             out.push('\\');
                             out.push(c);
@@ -201,6 +224,7 @@ impl SgfParser {
         out
     }
 
+    /// 期望下一个字符匹配指定值
     fn expect(&mut self, ch: char) -> Result<()> {
         if self.pos >= self.input.len() {
             return Err(ParseError::Eof);
@@ -213,6 +237,7 @@ impl SgfParser {
         }
     }
 
+    /// 跳过空白字符
     fn skip_ws(&mut self) {
         while self.pos < self.input.len() && self.input[self.pos].is_whitespace() {
             self.pos += 1;

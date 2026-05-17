@@ -2,21 +2,26 @@ use crate::sgf::property::Property;
 use crate::sgf::tree::GameTree;
 use std::fmt::Write;
 
+/// SGF 格式导出器
 pub struct SgfExporter<'a> {
+    /// 要导出的游戏树引用
     tree: &'a GameTree,
 }
 
 impl<'a> SgfExporter<'a> {
+    /// 创建新的导出器
     pub fn new(tree: &'a GameTree) -> Self {
         Self { tree }
     }
 
+    /// 执行导出，返回 SGF 格式字符串
     pub fn export(&self) -> String {
         let mut out = String::new();
         self.write_collection(&mut out).unwrap();
         out
     }
 
+    /// 写入 SGF 集合结构
     fn write_collection(&self, f: &mut String) -> std::fmt::Result {
         f.push('(');
         if let Some(root) = self.tree.get_root() {
@@ -26,6 +31,7 @@ impl<'a> SgfExporter<'a> {
         Ok(())
     }
 
+    /// 递归写入节点序列
     fn write_node_sequence(&self, idx: usize, f: &mut String) -> std::fmt::Result {
         let node = self.tree.get_node(idx).unwrap();
         f.push(';');
@@ -43,6 +49,7 @@ impl<'a> SgfExporter<'a> {
         Ok(())
     }
 
+    /// 写入节点属性
     fn write_properties(&self, node: &crate::sgf::tree::Node, f: &mut String) -> std::fmt::Result {
         let order = [
             Property::GM,
@@ -75,6 +82,7 @@ impl<'a> SgfExporter<'a> {
         Ok(())
     }
 
+    /// 写入单个属性
     fn write_prop(&self, f: &mut String, name: &str, values: &[String]) -> std::fmt::Result {
         for v in values {
             write!(f, "{}[{}]", name, Self::escape(v))?;
@@ -82,6 +90,9 @@ impl<'a> SgfExporter<'a> {
         Ok(())
     }
 
+    /// 转义 SGF 特殊字符
+    ///
+    /// 需要转义的字符：\ ] \n \t \r
     fn escape(s: &str) -> String {
         let mut out = String::with_capacity(s.len() + 2);
         for c in s.chars() {

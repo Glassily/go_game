@@ -1,6 +1,11 @@
-//! Go SGF Parser - 围棋棋谱解析库
+//! Go Game Library - 围棋 SGF 解析库
 //!
-//! 支持: 解析/导出/验证 SGF FF4 格式棋谱
+//! 提供围棋棋谱的解析、导出、验证和编辑功能
+//!
+//! # 主要功能
+//! - SGF FF4 格式棋谱解析和导出
+//! - 围棋棋盘和着法管理
+//! - 棋谱验证（检查着法合法性、劫规则等）
 //!
 //! # 示例
 //! ```
@@ -20,7 +25,7 @@ pub mod sgf;
 
 pub use board::{Board, IllegalMoveError};
 pub use model::{Color, Move, Point};
-pub use record::{GameInfo, GoRecord};
+pub use record::{GameInfo, GoRecord, NodeInfo};
 pub use sgf::{
     GameTree, Node, ParseError, Property, SgfExporter, SgfParser, SgfValidator, TreeError,
     ValidationError, ValidationResult,

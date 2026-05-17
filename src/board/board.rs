@@ -4,24 +4,34 @@ use std::{
     fmt::Display,
 };
 
-/// 围棋棋盘
+/// 围棋棋盘结构体
+///
+/// 表示一个围棋棋盘及其上的棋子状态
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Board {
+    /// 棋盘大小（通常为 9、13 或 19）
     pub size: u8,
+    /// 棋盘网格，使用 Vec<Vec<Option<Color>>> 存储
     grid: Vec<Vec<Option<Color>>>,
 }
 
-/// 落子非法原因
+/// 落子非法原因枚举
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IllegalMoveError {
+    /// 无效着法
     InvalidMove,
+    /// 超出边界
     OutOfBounds,
+    /// 位置已被占用
     Occupied,
+    /// 违反劫规则
     KoViolation,
+    /// 自杀着法
     Suicide,
 }
 
 impl Board {
+    /// 创建指定大小的空棋盘
     pub fn new(size: u8) -> Self {
         assert!((2..=25).contains(&size), "Board size must be 2-25");
         Self {
@@ -30,6 +40,11 @@ impl Board {
         }
     }
 
+    /// 从给定棋子配置创建棋盘
+    ///
+    /// # 参数
+    /// - `size`: 棋盘大小
+    /// - `stones`: 初始棋子列表，每个元素为 (坐标, 颜色)
     pub fn from_setup(size: u8, stones: &[(Point, Color)]) -> Self {
         let mut board = Self::new(size);
         for &(pt, color) in stones {
@@ -40,28 +55,32 @@ impl Board {
         board
     }
 
+    /// 获取指定位置的棋子颜色
     pub fn get(&self, pt: Point) -> Option<Color> {
         pt.is_valid(self.size)
             .then(|| self.grid[pt.y as usize][pt.x as usize])?
     }
 
+    /// 在指定位置放置棋子
     pub fn set(&mut self, pt: Point, color: Color) {
         if pt.is_valid(self.size) {
             self.grid[pt.y as usize][pt.x as usize] = Some(color);
         }
     }
 
+    /// 移除指定位置的棋子
     pub fn remove(&mut self, pt: Point) {
         if pt.is_valid(self.size) {
             self.grid[pt.y as usize][pt.x as usize] = None;
         }
     }
 
+    /// 检查指定位置是否为空
     pub fn is_empty(&self, pt: Point) -> bool {
         self.get(pt).is_none()
     }
 
-    /// 获取相邻点 (四方向)
+    /// 获取指定点的相邻四个方向邻居
     pub fn neighbors(&self, pt: Point) -> Vec<Point> {
         let mut nbs = Vec::new();
         let (x, y) = (pt.x as i32, pt.y as i32);
@@ -79,7 +98,9 @@ impl Board {
         nbs
     }
 
-    /// BFS 获取连通块
+    /// 使用 BFS 获取连通块
+    ///
+    /// 返回从起始点出发，所有同色棋子组成的连通集合
     pub fn get_block(&self, start: Point) -> HashSet<Point> {
         let color = match self.get(start) {
             Some(c) => c,
@@ -101,7 +122,9 @@ impl Board {
         visited
     }
 
-    /// 计算连通块的气
+    /// 计算连通块的气的数量
+    ///
+    /// 气是指与连通块相邻的空点
     pub fn count_liberties(&self, block: &HashSet<Point>) -> HashSet<Point> {
         let mut libs = HashSet::new();
         for &pt in block {
@@ -114,7 +137,9 @@ impl Board {
         libs
     }
 
-    /// 移除因落子而死的棋子 (返回被移除的棋子列表)
+    /// 移除因落子而死的棋子
+    ///
+    /// 返回被移除的棋子列表
     pub fn remove_dead_groups(&mut self, mv: &Move) -> Vec<Point> {
         let mut removed = Vec::new();
         let opponent = mv.color.opposite();
@@ -134,20 +159,23 @@ impl Board {
     }
 
     /// 检查落子合法性
+    ///
+    /// # 参数
+    /// - `mv`: 要检查的着法
+    /// - `ko_point`: 劫点位置（该位置禁止立即提回）
+    /// - `allow_suicide`: 是否允许自杀着法
     pub fn is_legal(
         &self,
         mv: &Move,
         ko_point: Option<Point>,
         allow_suicide: bool,
     ) -> Result<(), IllegalMoveError> {
-        // Pass 总是合法
         if mv.is_pass() {
             return Ok(());
         }
 
         let pt = mv.point.ok_or(IllegalMoveError::InvalidMove)?;
 
-        // 1. 位置合法性
         if !pt.is_valid(self.size) {
             return Err(IllegalMoveError::OutOfBounds);
         }
@@ -155,29 +183,24 @@ impl Board {
             return Err(IllegalMoveError::Occupied);
         }
 
-        // 2. 临时棋盘模拟
         let mut temp = self.clone();
         temp.set(pt, mv.color);
 
-        // 模拟提子
         let temp_mv = Move {
             point: Some(pt),
             color: mv.color,
         };
         let captured = temp.remove_dead_groups(&temp_mv);
 
-        // 计算自己连通块和气
         let my_group = temp.get_block(pt);
         let my_liberties = temp.count_liberties(&my_group);
 
-        // 3. 自杀检查
         if my_liberties.is_empty() && captured.is_empty() {
             if !allow_suicide {
                 return Err(IllegalMoveError::Suicide);
             }
         }
 
-        // 4. 统一的劫检查：提一子 + 己方单子一口气 + 落子点正好是劫点
         if captured.len() == 1 && my_group.len() == 1 && my_liberties.len() == 1 {
             if let Some(ko) = ko_point {
                 if pt == ko {
@@ -189,16 +212,21 @@ impl Board {
         Ok(())
     }
 
-    /// 执行着法，返回: (被提掉的棋子, 新的劫点)
+    /// 执行着法
     ///
-    /// 带规则检测（原位操作，失败则回滚）
+    /// # 返回值
+    /// - `(被提掉的棋子列表, 新的劫点)`
+    ///
+    /// # 参数
+    /// - `mv`: 要执行的着法
+    /// - `ko_point`: 当前劫点
+    /// - `allow_suicide`: 是否允许自杀
     pub fn apply_move(
         &mut self,
         mv: &Move,
         ko_point: Option<Point>,
         allow_suicide: bool,
     ) -> Result<(Vec<Point>, Option<Point>), IllegalMoveError> {
-        // Pass 直接返回
         if mv.is_pass() {
             return Ok((Vec::new(), None));
         }
@@ -206,7 +234,6 @@ impl Board {
         let pt = mv.point.ok_or(IllegalMoveError::InvalidMove)?;
         let color = mv.color;
 
-        // 基本合法性（不修改状态）
         if !pt.is_valid(self.size) {
             return Err(IllegalMoveError::OutOfBounds);
         }
@@ -214,12 +241,9 @@ impl Board {
             return Err(IllegalMoveError::Occupied);
         }
 
-        // 记录所有修改 (点 -> 旧值) 以便回滚
         let mut changes: Vec<(Point, Option<Color>)> = Vec::new();
 
-        /// 回滚函数
         fn rollback(board: &mut Board, changes: &[(Point, Option<Color>)]) {
-            // p：更改的位置，old：位置上原来的颜色
             for &(p, old) in changes {
                 match old {
                     Some(c) => board.set(p, c),
@@ -228,11 +252,9 @@ impl Board {
             }
         }
 
-        // 记录并落子
-        changes.push((pt, None)); // 原来必为空
+        changes.push((pt, None));
         self.set(pt, color);
 
-        // 找出所有相邻且被提走的对方块
         let opponent = color.opposite();
         let mut groups_to_remove: Vec<(HashSet<Point>, Color)> = Vec::new();
 
@@ -240,7 +262,6 @@ impl Board {
             if self.get(nb) == Some(opponent) {
                 let group = self.get_block(nb);
                 if self.count_liberties(&group).is_empty() {
-                    // 避免重复加入同一块
                     if !groups_to_remove.iter().any(|(g, _)| g.contains(&nb)) {
                         groups_to_remove.push((group, opponent));
                     }
@@ -248,7 +269,6 @@ impl Board {
             }
         }
 
-        // 移除死子，同时记录
         let mut captured = Vec::new();
         for (group, col) in &groups_to_remove {
             for &p in group {
@@ -258,17 +278,14 @@ impl Board {
             }
         }
 
-        // 检查自杀（若不允许）
         if !allow_suicide {
             let my_group = self.get_block(pt);
             if self.count_liberties(&my_group).is_empty() {
-                // 回滚
                 rollback(self, &changes);
                 return Err(IllegalMoveError::Suicide);
             }
         }
 
-        // 劫检查
         {
             let my_group = self.get_block(pt);
             let my_libs = self.count_liberties(&my_group);
@@ -276,14 +293,12 @@ impl Board {
             if captured.len() == 1 && my_group.len() == 1 && my_libs.len() == 1 {
                 if let Some(ko) = ko_point {
                     if pt == ko {
-                        // 回滚
                         rollback(self, &changes);
                         return Err(IllegalMoveError::KoViolation);
                     }
                 }
             }
 
-            // 计算新劫点（仅当合法时）
             let new_ko = if captured.len() == 1 && my_group.len() == 1 && my_libs.len() == 1 {
                 Some(captured[0])
             } else {
@@ -294,15 +309,16 @@ impl Board {
         }
     }
 
-    /// 执行着法，返回: (被提掉的棋子, 新的劫点)
+    /// 执行着法（不检查合法性）
+    ///
+    /// 调用者需确保着法合法
     pub fn apply_move_uncheck(&mut self, mv: &Move) -> (Vec<Point>, Option<Point>) {
         if mv.is_pass() {
             return (Vec::new(), None);
         }
-        let pt = mv.point.unwrap(); // 调用者保证
+        let pt = mv.point.unwrap();
         self.set(pt, mv.color);
         let captured = self.remove_dead_groups(mv);
-        // 劫点
         let new_ko = if captured.len() == 1 {
             let my_group = self.get_block(pt);
             if my_group.len() == 1 && self.count_liberties(&my_group).len() == 1 {
@@ -316,7 +332,7 @@ impl Board {
         (captured, new_ko)
     }
 
-    /// 文本可视化
+    /// 转换为文本格式的棋盘表示
     pub fn to_string(&self) -> String {
         let mut result = String::new();
         fn write_coord(result: &mut String, size: u8) {
@@ -333,7 +349,6 @@ impl Board {
             result.push('\n');
         }
         write_coord(&mut result, self.size);
-        // 棋盘内容
         for y in 0..self.size {
             result.push_str(&format!("{:2} ", self.size - y));
             for x in 0..self.size {
