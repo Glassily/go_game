@@ -38,8 +38,14 @@ impl Default for GoRecord {
 
 impl GoRecord {
     pub fn new(size: u8) -> Self {
+        let mut root_data = std::collections::HashMap::new();
+        root_data.insert(Property::GM, vec!["1".to_string()]);
+        root_data.insert(Property::FF, vec!["4".to_string()]);
+        root_data.insert(Property::SZ, vec![size.to_string()]);
+        let tree = GameTree::from(root_data);
+
         Self {
-            tree: GameTree::new(),
+            tree,
             current: None,
             board: Board::new(size),
             black_captures: 0,
@@ -47,6 +53,14 @@ impl GoRecord {
             history: Vec::new(),
             future: Vec::new(),
             ko_point: None,
+        }
+    }
+
+    pub fn set_root_property(&mut self, prop: Property, values: Vec<String>) {
+        if let Some(root) = self.tree.get_root() {
+            if let Some(node) = self.tree.get_node_mut(root) {
+                node.set(prop, values);
+            }
         }
     }
 
@@ -329,14 +343,6 @@ impl GoRecord {
                 }
             }
         }
-    }
-
-    pub fn new_game(&mut self) {
-        self.push_snapshot();
-        self.tree = GameTree::new();
-        self.current = None;
-        self.rebuild_board_to(None);
-        todo!("创建具有设定值的对局")
     }
 
     pub fn load_sgf(&mut self, tree: GameTree) {

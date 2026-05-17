@@ -8,6 +8,16 @@ use go_game::model::{Color, Move, Point};
 use go_game::record::{GoRecord, NodeInfo};
 use go_game::sgf::{export, parse};
 
+fn default_komi(rules: &str) -> &'static str {
+    match rules {
+        "Japanese" => "6.5",
+        "Chinese" => "7.5",
+        "AGA" => "7.0",
+        "New Zealand" => "6.5",
+        _ => "6.5",
+    }
+}
+
 pub struct GoGui {
     record: GoRecord,
     edit_mode: bool,
@@ -29,6 +39,11 @@ pub struct GoGui {
     error_message: String,
     show_illegal_move_popup: bool,
     illegal_move_error: Option<String>,
+    show_new_game_dialog: bool,
+    new_game_board_size: u8,
+    new_game_rules: String,
+    new_game_komi: String,
+    new_game_komi_edited: bool,
 }
 
 impl GoGui {
@@ -54,6 +69,11 @@ impl GoGui {
             error_message: String::new(),
             show_illegal_move_popup: false,
             illegal_move_error: None,
+            show_new_game_dialog: false,
+            new_game_board_size: 19,
+            new_game_rules: String::from("Japanese"),
+            new_game_komi: String::from("6.5"),
+            new_game_komi_edited: false,
         }
     }
 }
@@ -88,6 +108,7 @@ impl eframe::App for GoGui {
         self.error_window(ui);
         self.illegal_move_popup(ui);
         self.context_menu(ui);
+        self.new_game_dialog(ui);
     }
 }
 
@@ -127,12 +148,23 @@ impl GoGui {
     fn file_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button("File", |ui| {
             if ui.button("New").clicked() {
-                self.record.new_game();
-                self.info_black.clear();
-                self.info_white.clear();
-                self.info_date.clear();
-                self.info_komi.clear();
-                self.info_result.clear();
+                self.new_game_board_size = self.record.board_size();
+                if let Some(root) = self.record.tree.get_root() {
+                    if let Some(node) = self.record.tree.get_node(root) {
+                        if let Some(r) = node.get_first(go_game::Property::RU) {
+                            self.new_game_rules = r.clone();
+                        }
+                        if let Some(k) = node.get_first(go_game::Property::KM) {
+                            self.new_game_komi = k.clone();
+                        }
+                    }
+                }
+                if self.new_game_rules.is_empty() {
+                    self.new_game_rules = String::from("Japanese");
+                }
+                let dk = default_komi(&self.new_game_rules);
+                self.new_game_komi_edited = self.new_game_komi != dk;
+                self.show_new_game_dialog = true;
                 ui.close();
             }
             if ui.button("Open SGF").clicked() {
@@ -714,6 +746,93 @@ impl GoGui {
                     ui.close();
                 }
             });
+    }
+
+    fn new_game_dialog(&mut self, ui: &mut egui::Ui) {
+        if !self.show_new_game_dialog {
+            return;
+        }
+
+        let mut close_dialog = false;
+
+        egui::Window::new("New Game")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+            .show(ui.ctx(), |ui| {
+                ui.set_width(320.0);
+
+                ui.label("Board Size:");
+                ui.horizontal(|ui| {
+                    for size in &[19u8, 13, 9] {
+                        if ui
+                            .radio(
+                                self.new_game_board_size == *size,
+                                format!("{}x{}", size, size),
+                            )
+                            .clicked()
+                        {
+                            self.new_game_board_size = *size;
+                        }
+                    }
+                });
+
+                ui.label("Rules:");
+                ui.horizontal(|ui| {
+                    let rules_list = ["Japanese", "Chinese", "AGA", "New Zealand"];
+                    for rule in &rules_list {
+                        if ui.radio(self.new_game_rules == *rule, *rule).clicked() {
+                            self.new_game_rules = rule.to_string();
+                            if !self.new_game_komi_edited {
+                                self.new_game_komi = default_komi(rule).to_string();
+                            }
+                        }
+                    }
+                });
+
+                ui.label("Komi:");
+                let old_komi = self.new_game_komi.clone();
+                ui.text_edit_singleline(&mut self.new_game_komi);
+                if self.new_game_komi != old_komi {
+                    self.new_game_komi_edited = true;
+                }
+
+                ui.horizontal(|ui| {
+                    if ui.button("Create").clicked() {
+                        self.record = GoRecord::new(self.new_game_board_size);
+                        self.record
+                            .set_root_property(go_game::Property::GM, vec!["1".to_string()]);
+                        self.record
+                            .set_root_property(go_game::Property::FF, vec!["4".to_string()]);
+                        self.record.set_root_property(
+                            go_game::Property::SZ,
+                            vec![self.new_game_board_size.to_string()],
+                        );
+                        self.record.set_root_property(
+                            go_game::Property::RU,
+                            vec![self.new_game_rules.clone()],
+                        );
+                        self.record.set_root_property(
+                            go_game::Property::KM,
+                            vec![self.new_game_komi.clone()],
+                        );
+
+                        self.info_black.clear();
+                        self.info_white.clear();
+                        self.info_date.clear();
+                        self.info_result.clear();
+                        self.info_komi = self.new_game_komi.clone();
+                        close_dialog = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        close_dialog = true;
+                    }
+                });
+            });
+
+        if close_dialog {
+            self.show_new_game_dialog = false;
+        }
     }
 }
 
