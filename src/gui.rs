@@ -3,10 +3,41 @@ use eframe::egui;
 use egui::{Color32, Layout, Sense, Stroke, Vec2};
 use std::collections::HashMap;
 
-use go_game::Board;
 use go_game::model::{Color, Move, Point};
 use go_game::record::{GoRecord, NodeInfo};
 use go_game::sgf::{export, parse};
+use go_game::{Board, IllegalMoveError};
+
+const BUTTON_HEIGHT: f32 = 32.0;
+const SPACING: f32 = 12.0;
+const SECTION_SPACING: f32 = 16.0;
+
+fn dialog_window(title: &str) -> egui::Window<'static> {
+    egui::Window::new(title)
+        .collapsible(false)
+        .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+}
+
+fn styled_button(ui: &mut egui::Ui, text: &str, is_primary: bool) -> egui::Response {
+    let button = egui::Button::new(text)
+        .min_size(Vec2::new(80.0, BUTTON_HEIGHT))
+        .corner_radius(8.0);
+    if is_primary {
+        ui.add(button.fill(Color32::from_rgb(66, 133, 244)))
+    } else {
+        ui.add(button)
+    }
+}
+
+fn section_label(ui: &mut egui::Ui, text: &str) {
+    ui.label(egui::RichText::new(text).strong().size(14.0));
+}
+
+fn dialog_separator(ui: &mut egui::Ui) {
+    ui.add_space(4.0);
+    ui.separator();
+    ui.add_space(4.0);
+}
 
 /// 根据规则返回默认贴目值
 /// - Japanese: 6.5
@@ -46,6 +77,8 @@ pub struct GoGui {
     show_comment_panel: bool,
     /// 右键菜单选中的节点索引
     context_node: Option<usize>,
+    /// 右键点击的棋盘坐标
+    context_point: Option<Point>,
     /// 右键菜单位置
     context_pos: egui::Pos2,
     /// 是否显示右键菜单窗口
@@ -120,6 +153,7 @@ impl GoGui {
             comment_edit: String::new(),
             show_comment_panel: true,
             context_node: None,
+            context_point: None,
             context_pos: egui::pos2(0.0, 0.0),
             show_context_window: false,
             info_game_name: String::new(),
@@ -244,7 +278,7 @@ impl GoGui {
                     self.record.go_next();
                     self.sync_comment_edit();
                 }
-                if ui.button("|>").clicked() {
+                if ui.button(">|").clicked() {
                     self.record.go_last();
                     self.sync_comment_edit();
                 }
@@ -459,7 +493,7 @@ impl GoGui {
                         );
 
                         // 左键点击落子
-                        if response.clicked() && self.edit_mode {
+                        if response.clicked() && self.edit_mode && !self.show_context_window {
                             if let Some(pos) = response.interact_pointer_pos() {
                                 if let Some(pt) =
                                     screen_pos_to_point(board_rect, pos, self.record.board_size())
@@ -467,20 +501,23 @@ impl GoGui {
                                     let next_color = self.record.next_to_move();
                                     let mv = Move::new(next_color, pt);
                                     if let Err(e) = self.record.add_move(mv) {
-                                        self.show_illegal_move_popup = true;
-                                        self.illegal_move_error = Some(format!("{:?}", e));
+                                        if !matches!(e, IllegalMoveError::Occupied) {
+                                            self.show_illegal_move_popup = true;
+                                            self.illegal_move_error = Some(format!("{:?}", e));
+                                        }
                                     }
                                 }
                             }
                         }
 
                         // 右键点击显示上下文菜单
-                        if response.secondary_clicked() {
+                        if response.secondary_clicked() && !self.show_context_window {
                             if let Some(pos) = response.interact_pointer_pos() {
                                 if let Some(pt) =
                                     screen_pos_to_point(board_rect, pos, self.record.board_size())
                                 {
                                     self.context_node = self.record.find_move_at_point(pt);
+                                    self.context_point = Some(pt);
                                     self.context_pos = pos;
                                     self.show_context_window = true;
                                 }
@@ -725,7 +762,7 @@ impl GoGui {
                     &moves_to_show,
                 );
 
-                if response.clicked() && self.edit_mode {
+                if response.clicked() && self.edit_mode && !self.show_context_window {
                     if let Some(pos) = response.interact_pointer_pos() {
                         if let Some(pt) =
                             screen_pos_to_point(board_rect, pos, self.record.board_size())
@@ -740,12 +777,13 @@ impl GoGui {
                     }
                 }
 
-                if response.secondary_clicked() {
+                if response.secondary_clicked() && !self.show_context_window {
                     if let Some(pos) = response.interact_pointer_pos() {
                         if let Some(pt) =
                             screen_pos_to_point(board_rect, pos, self.record.board_size())
                         {
                             self.context_node = self.record.find_move_at_point(pt);
+                            self.context_point = Some(pt);
                             self.context_pos = pos;
                             self.show_context_window = true;
                         }
@@ -820,28 +858,30 @@ impl GoGui {
             return;
         }
 
-        egui::Window::new("Game Info")
+        dialog_window("📋 Game Info")
             .resizable(true)
-            .default_width(480.0)
+            .default_width(520.0)
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    ui.set_width(450.0);
+                    ui.set_width(480.0);
+                    ui.add_space(SPACING);
 
-                    ui.heading("Game Info");
-                    ui.separator();
+                    ui.heading(egui::RichText::new("Game Information").strong());
+                    dialog_separator(ui);
 
-                    // 比赛基本信息
+                    section_label(ui, "Basic Info");
+                    ui.add_space(6.0);
                     ui.group(|ui| {
                         ui.label("Title:");
                         ui.add(
                             egui::TextEdit::singleline(&mut self.info_game_name)
-                                .desired_width(400.0),
+                                .desired_width(440.0),
                         );
                         ui.horizontal(|ui| {
                             ui.label("Event:");
                             ui.add(
                                 egui::TextEdit::singleline(&mut self.info_event)
-                                    .desired_width(200.0),
+                                    .desired_width(180.0),
                             );
                             ui.label("Round:");
                             ui.add(
@@ -863,9 +903,9 @@ impl GoGui {
                         });
                     });
 
-                    ui.add_space(10.0);
-
-                    // 棋手信息
+                    dialog_separator(ui);
+                    section_label(ui, "Players");
+                    ui.add_space(6.0);
                     ui.group(|ui| {
                         ui.horizontal_top(|ui| {
                             ui.vertical(|ui| {
@@ -888,9 +928,9 @@ impl GoGui {
                         });
                     });
 
-                    ui.add_space(10.0);
-
-                    // 规则和结果信息
+                    dialog_separator(ui);
+                    section_label(ui, "Game Settings");
+                    ui.add_space(6.0);
                     ui.group(|ui| {
                         ui.horizontal(|ui| {
                             ui.label("Rules:");
@@ -917,113 +957,114 @@ impl GoGui {
                         });
                     });
 
-                    ui.add_space(10.0);
-
-                    // 用户信息
+                    dialog_separator(ui);
+                    section_label(ui, "User");
+                    ui.add_space(6.0);
                     ui.group(|ui| {
                         ui.horizontal(|ui| {
                             ui.label("User:");
                             ui.add(
                                 egui::TextEdit::singleline(&mut self.info_user)
-                                    .desired_width(350.0),
+                                    .desired_width(380.0),
                             );
                         });
                     });
 
-                    ui.add_space(15.0);
-
-                    // 保存和关闭按钮
+                    ui.add_space(SECTION_SPACING);
                     ui.horizontal(|ui| {
-                        if ui.button("Save").clicked() {
-                            let info = go_game::record::GameInfo {
-                                game_name: if self.info_game_name.is_empty() {
-                                    None
-                                } else {
-                                    Some(self.info_game_name.clone())
-                                },
-                                black: if self.info_black.is_empty() {
-                                    None
-                                } else {
-                                    Some(self.info_black.clone())
-                                },
-                                black_rank: if self.info_black_rank.is_empty() {
-                                    None
-                                } else {
-                                    Some(self.info_black_rank.clone())
-                                },
-                                white: if self.info_white.is_empty() {
-                                    None
-                                } else {
-                                    Some(self.info_white.clone())
-                                },
-                                white_rank: if self.info_white_rank.is_empty() {
-                                    None
-                                } else {
-                                    Some(self.info_white_rank.clone())
-                                },
-                                event: if self.info_event.is_empty() {
-                                    None
-                                } else {
-                                    Some(self.info_event.clone())
-                                },
-                                round: if self.info_round.is_empty() {
-                                    None
-                                } else {
-                                    Some(self.info_round.clone())
-                                },
-                                place: if self.info_place.is_empty() {
-                                    None
-                                } else {
-                                    Some(self.info_place.clone())
-                                },
-                                date: if self.info_date.is_empty() {
-                                    None
-                                } else {
-                                    Some(self.info_date.clone())
-                                },
-                                komi: if self.info_komi.is_empty() {
-                                    None
-                                } else {
-                                    Some(self.info_komi.clone())
-                                },
-                                result: if self.info_result.is_empty() {
-                                    None
-                                } else {
-                                    Some(self.info_result.clone())
-                                },
-                                rules: if self.info_rules.is_empty() {
-                                    None
-                                } else {
-                                    Some(self.info_rules.clone())
-                                },
-                                handicap: if self.info_handicap.is_empty() {
-                                    None
-                                } else {
-                                    Some(self.info_handicap.clone())
-                                },
-                                black_team: if self.info_black_team.is_empty() {
-                                    None
-                                } else {
-                                    Some(self.info_black_team.clone())
-                                },
-                                white_team: if self.info_white_team.is_empty() {
-                                    None
-                                } else {
-                                    Some(self.info_white_team.clone())
-                                },
-                                user: if self.info_user.is_empty() {
-                                    None
-                                } else {
-                                    Some(self.info_user.clone())
-                                },
-                            };
-                            self.record.set_game_info(&info);
-                            self.show_info_window = false;
-                        }
-                        if ui.button("Close").clicked() {
-                            self.show_info_window = false;
-                        }
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if styled_button(ui, "Close", false).clicked() {
+                                self.show_info_window = false;
+                            }
+                            if styled_button(ui, "Save", true).clicked() {
+                                let info = go_game::record::GameInfo {
+                                    game_name: if self.info_game_name.is_empty() {
+                                        None
+                                    } else {
+                                        Some(self.info_game_name.clone())
+                                    },
+                                    black: if self.info_black.is_empty() {
+                                        None
+                                    } else {
+                                        Some(self.info_black.clone())
+                                    },
+                                    black_rank: if self.info_black_rank.is_empty() {
+                                        None
+                                    } else {
+                                        Some(self.info_black_rank.clone())
+                                    },
+                                    white: if self.info_white.is_empty() {
+                                        None
+                                    } else {
+                                        Some(self.info_white.clone())
+                                    },
+                                    white_rank: if self.info_white_rank.is_empty() {
+                                        None
+                                    } else {
+                                        Some(self.info_white_rank.clone())
+                                    },
+                                    event: if self.info_event.is_empty() {
+                                        None
+                                    } else {
+                                        Some(self.info_event.clone())
+                                    },
+                                    round: if self.info_round.is_empty() {
+                                        None
+                                    } else {
+                                        Some(self.info_round.clone())
+                                    },
+                                    place: if self.info_place.is_empty() {
+                                        None
+                                    } else {
+                                        Some(self.info_place.clone())
+                                    },
+                                    date: if self.info_date.is_empty() {
+                                        None
+                                    } else {
+                                        Some(self.info_date.clone())
+                                    },
+                                    komi: if self.info_komi.is_empty() {
+                                        None
+                                    } else {
+                                        Some(self.info_komi.clone())
+                                    },
+                                    result: if self.info_result.is_empty() {
+                                        None
+                                    } else {
+                                        Some(self.info_result.clone())
+                                    },
+                                    rules: if self.info_rules.is_empty() {
+                                        None
+                                    } else {
+                                        Some(self.info_rules.clone())
+                                    },
+                                    handicap: if self.info_handicap.is_empty() {
+                                        None
+                                    } else {
+                                        Some(self.info_handicap.clone())
+                                    },
+                                    black_team: if self.info_black_team.is_empty() {
+                                        None
+                                    } else {
+                                        Some(self.info_black_team.clone())
+                                    },
+                                    white_team: if self.info_white_team.is_empty() {
+                                        None
+                                    } else {
+                                        Some(self.info_white_team.clone())
+                                    },
+                                    user: if self.info_user.is_empty() {
+                                        None
+                                    } else {
+                                        Some(self.info_user.clone())
+                                    },
+                                };
+                                self.record.set_game_info(&info);
+                                self.show_info_window = false;
+                            }
+                        });
                     });
+                    ui.add_space(SPACING);
                 });
             });
     }
@@ -1034,14 +1075,21 @@ impl GoGui {
             return;
         }
 
-        egui::Window::new("Error")
-            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
-            .show(ctx, |ui| {
-                ui.label(&self.error_message);
-                if ui.button("OK").clicked() {
-                    self.show_error_window = false;
-                }
+        dialog_window("⚠ Error").resizable(false).show(ctx, |ui| {
+            ui.add_space(SPACING);
+            ui.label(
+                egui::RichText::new(&self.error_message)
+                    .color(Color32::from_rgb(180, 50, 50))
+                    .size(14.0),
+            );
+            ui.add_space(SECTION_SPACING);
+            ui.horizontal(|ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    styled_button(ui, "OK", true);
+                });
             });
+            ui.add_space(SPACING);
+        });
     }
 
     /// 非法落子弹窗提示
@@ -1050,18 +1098,29 @@ impl GoGui {
             return;
         }
 
-        egui::Window::new("Illegal Move")
-            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+        dialog_window("⛔ Illegal Move")
+            .resizable(false)
             .show(ui.ctx(), |ui| {
+                ui.add_space(SPACING);
                 ui.label(
-                    self.illegal_move_error
-                        .as_deref()
-                        .unwrap_or("Unknown error"),
+                    egui::RichText::new(
+                        self.illegal_move_error
+                            .as_deref()
+                            .unwrap_or("Unknown error"),
+                    )
+                    .color(Color32::from_rgb(200, 100, 50))
+                    .size(14.0),
                 );
-                if ui.button("OK").clicked() {
-                    self.show_illegal_move_popup = false;
-                    self.illegal_move_error = None;
-                }
+                ui.add_space(SECTION_SPACING);
+                ui.horizontal(|ui| {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if styled_button(ui, "OK", true).clicked() {
+                            self.show_illegal_move_popup = false;
+                            self.illegal_move_error = None;
+                        }
+                    });
+                });
+                ui.add_space(SPACING);
             });
     }
 
@@ -1072,25 +1131,71 @@ impl GoGui {
         }
 
         let node_idx = self.context_node;
+        let close_flag = self.show_context_window;
 
-        egui::Window::new("Move Options")
-            .fixed_pos(self.context_pos)
+        egui::Window::new("📋 Move Options")
+            .default_pos(self.context_pos)
             .show(ctx, |ui| {
+                ui.add_space(SPACING);
+                if let Some(pt) = self.context_point {
+                    let board_size = self.record.board_size();
+                    ui.label(
+                        egui::RichText::new(format!("Position: {}", pt.to_gtp(board_size)))
+                            .size(14.0),
+                    );
+                    ui.add_space(SPACING);
+                }
                 if let Some(idx) = node_idx {
                     ui.label(format!("Node: {}", idx));
-                    if ui.button("Go to").clicked() {
-                        self.record.go_to(idx);
-                        self.context_node = None;
-                        self.show_context_window = false;
-                        ui.close();
-                    }
+                    ui.add_space(SPACING);
                 }
-                if ui.button("Cancel").clicked() {
-                    self.context_node = None;
-                    self.show_context_window = false;
-                    ui.close();
-                }
+                ui.horizontal(|ui| {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if let Some(idx) = node_idx {
+                            if styled_button(ui, "Go to", true).clicked() {
+                                self.record.go_to(idx);
+                                self.context_node = None;
+                                self.context_point = None;
+                                self.show_context_window = false;
+                                ui.close();
+                            }
+                        }
+                        if ui
+                            .add(
+                                egui::Button::new("Cancel")
+                                    .min_size(Vec2::new(80.0, BUTTON_HEIGHT)),
+                            )
+                            .clicked()
+                        {
+                            self.context_node = None;
+                            self.context_point = None;
+                            self.show_context_window = false;
+                            ui.close();
+                        }
+                    });
+                });
+                ui.add_space(SPACING);
             });
+
+        if close_flag && self.show_context_window {
+            let overlay_response = egui::Area::new(egui::Id::new("context_overlay_area"))
+                .order(egui::Order::Background)
+                .show(ctx, |ui| {
+                    let available = ui.available_rect_before_wrap();
+                    ui.allocate_rect(available, Sense::hover());
+                    ui.painter().rect_filled(
+                        available,
+                        0.0,
+                        Color32::from_rgba_unmultiplied(0, 0, 0, 30),
+                    );
+                })
+                .response;
+            if overlay_response.clicked() {
+                self.context_node = None;
+                self.context_point = None;
+                self.show_context_window = false;
+            }
+        }
     }
 
     /// 新建游戏对话框
@@ -1101,14 +1206,14 @@ impl GoGui {
 
         let mut close_dialog = false;
 
-        egui::Window::new("New Game")
-            .collapsible(false)
+        dialog_window("🎮 New Game")
             .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
             .show(ui.ctx(), |ui| {
-                ui.set_width(320.0);
+                ui.set_width(340.0);
+                ui.add_space(SPACING);
 
-                ui.label("Board Size:");
+                section_label(ui, "Board Size");
+                ui.add_space(6.0);
                 ui.horizontal(|ui| {
                     for size in &[19u8, 13, 9] {
                         if ui
@@ -1123,13 +1228,14 @@ impl GoGui {
                     }
                 });
 
-                ui.label("Rules:");
-                ui.horizontal(|ui| {
+                dialog_separator(ui);
+                section_label(ui, "Rules");
+                ui.add_space(6.0);
+                ui.horizontal_wrapped(|ui| {
                     let rules_list = ["Japanese", "Chinese", "AGA", "New Zealand"];
                     for rule in &rules_list {
                         if ui.radio(self.new_game_rules == *rule, *rule).clicked() {
                             self.new_game_rules = rule.to_string();
-                            // 用户未手动编辑贴目时，自动更新贴目值
                             if !self.new_game_komi_edited {
                                 self.new_game_komi = default_komi(rule).to_string();
                             }
@@ -1137,58 +1243,58 @@ impl GoGui {
                     }
                 });
 
-                ui.label("Komi:");
-                let old_komi = self.new_game_komi.clone();
+                dialog_separator(ui);
+                section_label(ui, "Komi");
+                ui.add_space(6.0);
                 ui.text_edit_singleline(&mut self.new_game_komi);
-                if self.new_game_komi != old_komi {
-                    self.new_game_komi_edited = true;
-                }
 
+                ui.add_space(SECTION_SPACING);
                 ui.horizontal(|ui| {
-                    if ui.button("Create").clicked() {
-                        // 创建新的棋局记录
-                        self.record = GoRecord::new(self.new_game_board_size);
-                        self.record
-                            .set_root_property(go_game::Property::GM, vec!["1".to_string()]);
-                        self.record
-                            .set_root_property(go_game::Property::FF, vec!["4".to_string()]);
-                        self.record.set_root_property(
-                            go_game::Property::SZ,
-                            vec![self.new_game_board_size.to_string()],
-                        );
-                        self.record.set_root_property(
-                            go_game::Property::RU,
-                            vec![self.new_game_rules.clone()],
-                        );
-                        self.record.set_root_property(
-                            go_game::Property::KM,
-                            vec![self.new_game_komi.clone()],
-                        );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if styled_button(ui, "Cancel", false).clicked() {
+                            close_dialog = true;
+                        }
+                        if styled_button(ui, "Create", true).clicked() {
+                            self.record = GoRecord::new(self.new_game_board_size);
+                            self.record
+                                .set_root_property(go_game::Property::GM, vec!["1".to_string()]);
+                            self.record
+                                .set_root_property(go_game::Property::FF, vec!["4".to_string()]);
+                            self.record.set_root_property(
+                                go_game::Property::SZ,
+                                vec![self.new_game_board_size.to_string()],
+                            );
+                            self.record.set_root_property(
+                                go_game::Property::RU,
+                                vec![self.new_game_rules.clone()],
+                            );
+                            self.record.set_root_property(
+                                go_game::Property::KM,
+                                vec![self.new_game_komi.clone()],
+                            );
 
-                        // 清除游戏信息
-                        self.info_game_name.clear();
-                        self.info_black.clear();
-                        self.info_black_rank.clear();
-                        self.info_white.clear();
-                        self.info_white_rank.clear();
-                        self.info_event.clear();
-                        self.info_round.clear();
-                        self.info_place.clear();
-                        self.info_date.clear();
-                        self.info_result.clear();
-                        self.info_komi = self.new_game_komi.clone();
-                        self.info_rules = self.new_game_rules.clone();
-                        self.info_handicap.clear();
-                        self.info_black_team.clear();
-                        self.info_white_team.clear();
-                        self.info_user.clear();
-                        self.comment_edit.clear();
-                        close_dialog = true;
-                    }
-                    if ui.button("Cancel").clicked() {
-                        close_dialog = true;
-                    }
+                            self.info_game_name.clear();
+                            self.info_black.clear();
+                            self.info_black_rank.clear();
+                            self.info_white.clear();
+                            self.info_white_rank.clear();
+                            self.info_event.clear();
+                            self.info_round.clear();
+                            self.info_place.clear();
+                            self.info_date.clear();
+                            self.info_result.clear();
+                            self.info_komi = self.new_game_komi.clone();
+                            self.info_rules = self.new_game_rules.clone();
+                            self.info_handicap.clear();
+                            self.info_black_team.clear();
+                            self.info_white_team.clear();
+                            self.info_user.clear();
+                            self.comment_edit.clear();
+                            close_dialog = true;
+                        }
+                    });
                 });
+                ui.add_space(SPACING);
             });
 
         if close_dialog {
