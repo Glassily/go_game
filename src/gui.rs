@@ -8,6 +8,11 @@ use go_game::model::{Color, Move, Point};
 use go_game::record::{GoRecord, NodeInfo};
 use go_game::sgf::{export, parse};
 
+/// 根据规则返回默认贴目值
+/// - Japanese: 6.5
+/// - Chinese: 7.5
+/// - AGA: 7.0
+/// - New Zealand: 6.5
 fn default_komi(rules: &str) -> &'static str {
     match rules {
         "Japanese" => "6.5",
@@ -18,52 +23,91 @@ fn default_komi(rules: &str) -> &'static str {
     }
 }
 
+/// 围棋 SGF 编辑器的主结构体
+/// 负责管理棋局记录、界面状态和各种交互逻辑
 pub struct GoGui {
+    /// 棋局记录，包含树形结构和棋盘状态
     record: GoRecord,
+    /// 是否处于编辑模式（允许落子）
     edit_mode: bool,
+    /// 是否显示游戏树面板
     show_tree: bool,
+    /// 是否显示坐标（A-T, 1-19）
     show_coords: bool,
+    /// 是否使用深色主题
     dark_theme: bool,
     /// 是否显示下一步提示（半透明棋子）
     show_next_moves: bool,
     /// 是否显示棋子手数
     show_move_numbers: bool,
+    /// 评论编辑框的内容
     comment_edit: String,
+    /// 是否显示评论面板
     show_comment_panel: bool,
+    /// 右键菜单选中的节点索引
     context_node: Option<usize>,
+    /// 右键菜单位置
     context_pos: egui::Pos2,
+    /// 是否显示右键菜单窗口
     show_context_window: bool,
+    /// 游戏名称
     info_game_name: String,
+    /// 黑方棋手姓名
     info_black: String,
+    /// 黑方段位/等级
     info_black_rank: String,
+    /// 白方棋手姓名
     info_white: String,
+    /// 白方段位/等级
     info_white_rank: String,
+    /// 比赛名称
     info_event: String,
+    /// 轮次
     info_round: String,
+    /// 比赛地点
     info_place: String,
+    /// 比赛日期
     info_date: String,
+    /// 贴目值
     info_komi: String,
+    /// 比赛结果
     info_result: String,
+    /// 规则体系
     info_rules: String,
+    /// 让子数
     info_handicap: String,
+    /// 黑方队伍
     info_black_team: String,
+    /// 白方队伍
     info_white_team: String,
+    /// 用户名
     info_user: String,
+    /// 是否显示游戏信息窗口
     show_info_window: bool,
+    /// 是否显示错误窗口
     show_error_window: bool,
+    /// 错误信息内容
     error_message: String,
+    /// 是否显示非法落子弹窗
     show_illegal_move_popup: bool,
+    /// 非法落子错误信息
     illegal_move_error: Option<String>,
+    /// 是否显示新建游戏对话框
     show_new_game_dialog: bool,
+    /// 新游戏的棋盘大小
     new_game_board_size: u8,
+    /// 新游戏的规则
     new_game_rules: String,
+    /// 新游戏的贴目值
     new_game_komi: String,
+    /// 用户是否手动编辑过贴目值
     new_game_komi_edited: bool,
-    /// 滚动计数器（用于滚轮每格走一步）
+    /// 滚动计数器（用于滚轮每格走一步，每格约36度）
     scroll_accumulator: f32,
 }
 
 impl GoGui {
+    /// 创建新的围棋 GUI 实例
     pub fn new() -> Self {
         Self {
             record: GoRecord::default(),
@@ -109,6 +153,7 @@ impl GoGui {
     }
 
     /// 在任何可能改变 current 的操作后同步评论编辑框
+    /// 当跳转到某个节点时，更新评论编辑框以显示该节点的评论
     fn sync_comment_edit(&mut self) {
         if let Some(idx) = self.record.current_index() {
             self.comment_edit = self.record.get_comment(idx).unwrap_or_default();
@@ -119,8 +164,10 @@ impl GoGui {
 }
 
 impl eframe::App for GoGui {
+    /// UI 主循环，处理输入和渲染
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         ui.input(|input| {
+            // 键盘快捷键处理
             if input.key_pressed(egui::Key::ArrowLeft) {
                 self.record.go_prev();
                 self.sync_comment_edit();
@@ -137,6 +184,7 @@ impl eframe::App for GoGui {
                 self.record.go_last();
                 self.sync_comment_edit();
             }
+            // Ctrl+Z 撤销，Ctrl+Shift+Z 重做
             if input.modifiers.ctrl && input.key_pressed(egui::Key::Z) {
                 if input.modifiers.shift {
                     self.record.redo();
@@ -158,6 +206,7 @@ impl eframe::App for GoGui {
                 self.sync_comment_edit();
             }
         });
+        // 渲染各个面板
         self.top_panel(ui);
         self.status_bar(ui);
         self.central_panel(ui);
@@ -170,9 +219,10 @@ impl eframe::App for GoGui {
 }
 
 impl GoGui {
-    /// 菜单栏
+    /// 顶部面板：包含菜单栏和导航按钮
     fn top_panel(&mut self, ui: &mut egui::Ui) {
         egui::Panel::top("top_panel").show_inside(ui, |ui| {
+            // 菜单栏
             egui::MenuBar::new().ui(ui, |ui| {
                 self.file_menu(ui);
                 self.edit_menu(ui);
@@ -180,6 +230,7 @@ impl GoGui {
                 self.help_menu(ui);
             });
 
+            // 导航按钮行
             ui.horizontal(|ui| {
                 if ui.button("|<").clicked() {
                     self.record.go_first();
@@ -206,8 +257,10 @@ impl GoGui {
         });
     }
 
+    /// 文件菜单：新建、打开、保存、退出
     fn file_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button("File", |ui| {
+            // 新建游戏
             if ui.button("New").clicked() {
                 self.new_game_board_size = self.record.board_size();
                 if let Some(root) = self.record.tree.get_root() {
@@ -228,6 +281,7 @@ impl GoGui {
                 self.show_new_game_dialog = true;
                 ui.close();
             }
+            // 打开 SGF 文件
             if ui.button("Open SGF").clicked() {
                 if let Some(path) = rfd::FileDialog::new().pick_file() {
                     match std::fs::read(&path) {
@@ -242,6 +296,7 @@ impl GoGui {
                                 Ok(tree) => {
                                     self.record.load_sgf(tree);
                                     self.sync_comment_edit();
+                                    // 加载游戏信息
                                     let info = self.record.get_game_info();
                                     self.info_game_name = info.game_name.unwrap_or_default();
                                     self.info_black = info.black.unwrap_or_default();
@@ -274,6 +329,7 @@ impl GoGui {
                 }
                 ui.close();
             }
+            // 另存为 SGF 文件
             if ui.button("Save As").clicked() {
                 if let Some(path) = rfd::FileDialog::new()
                     .add_filter("sgf file", &["sgf"])
@@ -284,12 +340,14 @@ impl GoGui {
                 }
                 ui.close();
             }
+            // 退出程序
             if ui.button("Quit").clicked() {
                 std::process::exit(0);
             }
         });
     }
 
+    /// 编辑菜单：撤销、重做、切换编辑模式
     fn edit_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button("Edit", |ui| {
             if ui.button("Undo (Ctrl+Z)").clicked() {
@@ -313,6 +371,7 @@ impl GoGui {
         });
     }
 
+    /// 视图菜单：主题、游戏树、坐标、评论面板、下一步提示、手数显示
     fn view_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button("View", |ui| {
             if ui.checkbox(&mut self.dark_theme, "Dark theme").clicked() {
@@ -330,12 +389,14 @@ impl GoGui {
         });
     }
 
+    /// 帮助菜单
     fn help_menu(&mut self, ui: &mut egui::Ui) {
         ui.menu_button("Help", |ui| {
             ui.label("Go SGF Editor");
         });
     }
 
+    /// 中央面板：包含棋盘和可选的游戏树
     fn central_panel(&mut self, ui: &mut egui::Ui) {
         egui::CentralPanel::default().show_inside(ui, |ui| {
             let avail = ui.available_rect_before_wrap();
@@ -397,6 +458,7 @@ impl GoGui {
                             &moves_to_show,
                         );
 
+                        // 左键点击落子
                         if response.clicked() && self.edit_mode {
                             if let Some(pos) = response.interact_pointer_pos() {
                                 if let Some(pt) =
@@ -412,6 +474,7 @@ impl GoGui {
                             }
                         }
 
+                        // 右键点击显示上下文菜单
                         if response.secondary_clicked() {
                             if let Some(pos) = response.interact_pointer_pos() {
                                 if let Some(pt) =
@@ -426,6 +489,7 @@ impl GoGui {
                     },
                 );
 
+                // --- 游戏树面板 ---
                 ui.scope_builder(
                     egui::UiBuilder::new()
                         .layout(Layout::top_down(egui::Align::LEFT))
@@ -438,7 +502,7 @@ impl GoGui {
                         let node_views: Vec<(usize, NodeInfo)> = self.record.all_nodes();
                         let max_depth = node_views.iter().map(|t| t.1.depth).max().unwrap_or(0);
 
-                        // 列分配
+                        // 列分配算法：为每个节点分配列号，确保同列的节点不会重叠
                         let mut col_map: HashMap<usize, usize> = HashMap::new();
                         let mut next_col: usize = 1;
                         fn assign_cols(
@@ -456,10 +520,12 @@ impl GoGui {
                             if children.is_empty() {
                                 return;
                             }
+                            // 第一个子节点继承父节点的列
                             let mut iter = children.into_iter();
                             if let Some(first) = iter.next() {
                                 assign_cols(tree, first, col_map, next_col, parent_col);
                             }
+                            // 后续子节点使用新列
                             for c in iter {
                                 let this_col = *next_col;
                                 *next_col += 1;
@@ -475,6 +541,7 @@ impl GoGui {
                         // 布局参数（更紧凑以适应子面板）
                         let row_h = 36.0;
                         let col_w = 40.0;
+                        let dot_size = 16.0;
                         let canvas_w = (max_col as f32 + 1.0) * col_w + 20.0;
                         let canvas_h = (max_depth as f32 + 2.0) * row_h + 20.0;
 
@@ -486,6 +553,7 @@ impl GoGui {
                             let origin = ui.min_rect().min;
                             let painter = ui.painter();
 
+                            // 收集所有节点的位置信息
                             let mut nodes_sorted = node_views.clone();
                             nodes_sorted.sort_by(|a, b| {
                                 a.1.depth.cmp(&b.1.depth).then_with(|| {
@@ -494,9 +562,6 @@ impl GoGui {
                                     ca.cmp(&cb)
                                 })
                             });
-
-                            // 计算位置并缓存
-                            let dot_size = 12.0;
                             let mut pos_map: HashMap<usize, egui::Pos2> = HashMap::new();
                             let mut rect_map: HashMap<usize, egui::Rect> = HashMap::new();
                             for (idx, info) in &nodes_sorted {
@@ -511,12 +576,13 @@ impl GoGui {
                                 rect_map.insert(*idx, node_rect);
                             }
 
-                            // 绘制连线
+                            // 绘制连线（使用折线连接父子节点）
                             for (idx, _info) in &nodes_sorted {
                                 if let Some(parent) = self.record.tree.get_parent(*idx) {
                                     if let (Some(&a), Some(&b)) =
                                         (pos_map.get(&parent), pos_map.get(idx))
                                     {
+                                        // 三段式折线：水平->垂直->水平
                                         let mid_y = (a.y + b.y) * 0.5;
                                         let p1 = egui::Pos2::new(a.x, mid_y);
                                         let p2 = egui::Pos2::new(b.x, mid_y);
@@ -536,7 +602,7 @@ impl GoGui {
                                 }
                             }
 
-                            // 绘制节点
+                            // 绘制节点圆点
                             for (idx, info) in &nodes_sorted {
                                 let node_rect = rect_map.get(idx).copied().unwrap();
                                 let resp = ui.interact(
@@ -545,6 +611,7 @@ impl GoGui {
                                     egui::Sense::click(),
                                 );
                                 let center = node_rect.center();
+                                // 当前节点高亮显示
                                 if self.record.current_index() == Some(*idx) {
                                     painter.rect_filled(
                                         node_rect.expand(4.0),
@@ -552,6 +619,8 @@ impl GoGui {
                                         Color32::from_rgb(200, 230, 255),
                                     );
                                 }
+                                // 根据节点类型绘制不同颜色的圆点
+                                // 1=黑棋, 2=白棋, _=其他（分支等）
                                 match info.kind {
                                     1 => {
                                         painter.circle_filled(
@@ -581,11 +650,13 @@ impl GoGui {
                                     }
                                 }
 
+                                // 点击节点跳转到该位置
                                 if resp.clicked() {
                                     self.record.go_to(*idx);
                                     self.comment_edit = info.comment.clone().unwrap_or_default();
                                 }
 
+                                // 绘制评论标签
                                 if let Some(c) = &info.comment {
                                     painter.text(
                                         egui::pos2(
@@ -684,6 +755,7 @@ impl GoGui {
         });
     }
 
+    /// 底部状态栏：显示当前手数、下一步、提子数等信息
     fn status_bar(&mut self, ui: &mut egui::Ui) {
         egui::Panel::bottom("status").show_inside(ui, |ui| {
             ui.horizontal(|ui| {
@@ -742,6 +814,7 @@ impl GoGui {
         });
     }
 
+    /// 游戏信息窗口：显示和编辑比赛信息
     fn info_window(&mut self, ctx: &egui::Context) {
         if !self.show_info_window {
             return;
@@ -757,6 +830,7 @@ impl GoGui {
                     ui.heading("Game Info");
                     ui.separator();
 
+                    // 比赛基本信息
                     ui.group(|ui| {
                         ui.label("Title:");
                         ui.add(
@@ -791,6 +865,7 @@ impl GoGui {
 
                     ui.add_space(10.0);
 
+                    // 棋手信息
                     ui.group(|ui| {
                         ui.horizontal_top(|ui| {
                             ui.vertical(|ui| {
@@ -815,6 +890,7 @@ impl GoGui {
 
                     ui.add_space(10.0);
 
+                    // 规则和结果信息
                     ui.group(|ui| {
                         ui.horizontal(|ui| {
                             ui.label("Rules:");
@@ -843,6 +919,7 @@ impl GoGui {
 
                     ui.add_space(10.0);
 
+                    // 用户信息
                     ui.group(|ui| {
                         ui.horizontal(|ui| {
                             ui.label("User:");
@@ -855,6 +932,7 @@ impl GoGui {
 
                     ui.add_space(15.0);
 
+                    // 保存和关闭按钮
                     ui.horizontal(|ui| {
                         if ui.button("Save").clicked() {
                             let info = go_game::record::GameInfo {
@@ -942,7 +1020,7 @@ impl GoGui {
                             self.record.set_game_info(&info);
                             self.show_info_window = false;
                         }
-                        if ui.button("Cancel").clicked() {
+                        if ui.button("Close").clicked() {
                             self.show_info_window = false;
                         }
                     });
@@ -950,48 +1028,44 @@ impl GoGui {
             });
     }
 
+    /// 错误信息窗口
     fn error_window(&mut self, ctx: &egui::Context) {
         if !self.show_error_window {
             return;
         }
 
         egui::Window::new("Error")
-            .collapsible(false)
-            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
             .show(ctx, |ui| {
                 ui.label(&self.error_message);
-                ui.horizontal(|ui| {
-                    if ui.button("OK").clicked() {
-                        self.show_error_window = false;
-                        self.error_message.clear();
-                    }
-                });
+                if ui.button("OK").clicked() {
+                    self.show_error_window = false;
+                }
             });
     }
 
-    fn illegal_move_popup(&mut self, ctx: &egui::Context) {
+    /// 非法落子弹窗提示
+    fn illegal_move_popup(&mut self, ui: &mut egui::Ui) {
         if !self.show_illegal_move_popup {
             return;
         }
 
         egui::Window::new("Illegal Move")
-            .collapsible(false)
-            .resizable(false)
-            .show(ctx, |ui| {
-                let msg = self
-                    .illegal_move_error
-                    .as_deref()
-                    .unwrap_or("Unknown error");
-                ui.label(msg);
-                ui.horizontal(|ui| {
-                    if ui.button("OK").clicked() {
-                        self.show_illegal_move_popup = false;
-                        self.illegal_move_error = None;
-                    }
-                });
+            .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+            .show(ui.ctx(), |ui| {
+                ui.label(
+                    self.illegal_move_error
+                        .as_deref()
+                        .unwrap_or("Unknown error"),
+                );
+                if ui.button("OK").clicked() {
+                    self.show_illegal_move_popup = false;
+                    self.illegal_move_error = None;
+                }
             });
     }
 
+    /// 右键上下文菜单
     fn context_menu(&mut self, ctx: &egui::Context) {
         if !self.show_context_window {
             return;
@@ -1019,6 +1093,7 @@ impl GoGui {
             });
     }
 
+    /// 新建游戏对话框
     fn new_game_dialog(&mut self, ui: &mut egui::Ui) {
         if !self.show_new_game_dialog {
             return;
@@ -1054,6 +1129,7 @@ impl GoGui {
                     for rule in &rules_list {
                         if ui.radio(self.new_game_rules == *rule, *rule).clicked() {
                             self.new_game_rules = rule.to_string();
+                            // 用户未手动编辑贴目时，自动更新贴目值
                             if !self.new_game_komi_edited {
                                 self.new_game_komi = default_komi(rule).to_string();
                             }
@@ -1070,6 +1146,7 @@ impl GoGui {
 
                 ui.horizontal(|ui| {
                     if ui.button("Create").clicked() {
+                        // 创建新的棋局记录
                         self.record = GoRecord::new(self.new_game_board_size);
                         self.record
                             .set_root_property(go_game::Property::GM, vec!["1".to_string()]);
@@ -1088,6 +1165,7 @@ impl GoGui {
                             vec![self.new_game_komi.clone()],
                         );
 
+                        // 清除游戏信息
                         self.info_game_name.clear();
                         self.info_black.clear();
                         self.info_black_rank.clear();
@@ -1119,7 +1197,10 @@ impl GoGui {
     }
 }
 
+/// 解码 SGF 文件内容
+/// 支持多种字符编码：UTF-8、UTF-16（LE/BE）、GBK、GB18030、BIG5、Shift-JIS、EUC-JP、EUC-KR
 fn decode_sgf_content(bytes: &[u8]) -> String {
+    // 检查 UTF-16 BOM
     if bytes.starts_with(&[0xFF, 0xFE]) {
         let (decoded, _, had_errors) = encoding_rs::UTF_16LE.decode(bytes);
         if !had_errors {
@@ -1132,6 +1213,7 @@ fn decode_sgf_content(bytes: &[u8]) -> String {
         }
     }
 
+    // 使用 chardetng 检测编码
     let mut detector = chardetng::EncodingDetector::new(Iso2022JpDetection::Allow);
     detector.feed(bytes, true);
     let detected_encoding = detector.guess(None, chardetng::Utf8Detection::Allow);
@@ -1140,6 +1222,7 @@ fn decode_sgf_content(bytes: &[u8]) -> String {
 
     if !had_errors {
         let result_str = result.to_string();
+        // 检查是否包含非法控制字符（换行、回车、制表符除外）
         if !result_str
             .chars()
             .any(|c: char| c.is_control() && c != '\n' && c != '\r' && c != '\t')
@@ -1148,6 +1231,7 @@ fn decode_sgf_content(bytes: &[u8]) -> String {
         }
     }
 
+    // 尝试常见的中文和日文编码
     let encodings_priority = [
         (encoding_rs::GBK, "GBK"),
         (encoding_rs::GB18030, "GB18030"),
@@ -1171,24 +1255,37 @@ fn decode_sgf_content(bytes: &[u8]) -> String {
         }
     }
 
+    // 最后手段：使用 UTF-8 损失性转换
     String::from_utf8_lossy(bytes).to_string()
 }
 
+/// 在 UI 上绘制棋盘
+///
+/// # 参数说明
+/// - `rect`: 棋盘绘制区域
+/// - `board`: 棋盘数据
+/// - `show_coords`: 是否显示坐标
+/// - `next_moves`: 下一步可落子位置提示（半透明棋子）
+/// - `last_move`: 最后落子位置（红色高亮圈）
+/// - `show_move_numbers`: 是否显示手数
+/// - `moves_to_show`: 要显示手数的棋子列表
 fn draw_board(
     ui: &mut egui::Ui,
     rect: egui::Rect,
     board: &Board,
     show_coords: bool,
-    next_moves: &[(Color, Option<Point>)], // 修改：支持 pass
-    last_move: Option<(Option<Point>, Color)>, // pass 时传入 None
+    next_moves: &[(Color, Option<Point>)],
+    last_move: Option<(Option<Point>, Color)>,
     show_move_numbers: bool,
-    moves_to_show: &[(Color, Option<Point>, usize)], // 修改：支持 pass
+    moves_to_show: &[(Color, Option<Point>, usize)],
 ) {
     let painter = ui.painter_at(rect);
     let size = board.size as usize;
 
+    // 绘制棋盘背景（木纹色）
     painter.rect_filled(rect, 0.0, Color32::from_rgb(230, 190, 120));
 
+    // 计算棋盘内边距和绘制区域
     let pad = (rect.width() * 0.03).clamp(2.0, 20.0);
     let inner_rect = rect.shrink(2.0);
     let drawing_rect = egui::Rect::from_min_max(
@@ -1197,7 +1294,7 @@ fn draw_board(
     );
     let cell = drawing_rect.width() / ((size as f32 - 1.0).max(1.0));
 
-    // 网格线
+    // 绘制网格线
     for i in 0..size {
         let x = drawing_rect.left() + i as f32 * cell;
         let y = drawing_rect.top() + i as f32 * cell;
@@ -1217,11 +1314,11 @@ fn draw_board(
         );
     }
 
-    // 星位
+    // 绘制星位（天元和四个角的星）
     let star_points = match size {
-        19 => vec![3, 9, 15],
-        13 => vec![3, 9],
-        9 => vec![2, 6],
+        19 => vec![3, 9, 15], // 4-4、4-10、10-4、10-10、天元
+        13 => vec![3, 9],     // 4-4、4-10、10-4、10-10
+        9 => vec![2, 6],      // 3-3、3-7、7-3、7-7
         _ => vec![],
     };
     for &sx in &star_points {
@@ -1327,6 +1424,7 @@ fn draw_board(
     // 坐标标签
     if show_coords {
         let font_id = egui::FontId::proportional((cell * 0.35).max(1.0));
+        // 横坐标（A-T，跳过 I）
         for x in 0..size {
             let cx = drawing_rect.left() + x as f32 * cell;
             let label = if x >= 8 {
@@ -1342,6 +1440,7 @@ fn draw_board(
                 Color32::BLACK,
             );
         }
+        // 纵坐标（从上到下递增）
         for y in 0..size {
             let cy = drawing_rect.top() + y as f32 * cell;
             let label = (size - y).to_string();
@@ -1356,6 +1455,11 @@ fn draw_board(
     }
 }
 
+/// 将屏幕坐标转换为棋盘坐标
+///
+/// # 返回值
+/// - `Some(Point)`: 棋盘上的有效落点
+/// - `None`: 超出棋盘区域
 fn screen_pos_to_point(rect: egui::Rect, pos: egui::Pos2, size: u8) -> Option<Point> {
     let pad = (rect.width() * 0.03).clamp(2.0, 20.0);
     let inner_rect = rect.shrink(2.0);
