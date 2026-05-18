@@ -331,9 +331,10 @@ impl Board {
         };
         (captured, new_ko)
     }
+}
 
-    /// 转换为文本格式的棋盘表示
-    pub fn to_string(&self) -> String {
+impl Display for Board {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut result = String::new();
         fn write_coord(result: &mut String, size: u8) {
             result.push_str("   ");
@@ -364,12 +365,6 @@ impl Board {
             result.push_str(&format!(" {}\n", self.size - y));
         }
         write_coord(&mut result, self.size);
-        result
-    }
-}
-
-impl Display for Board {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_string())
+        write!(f, "{}", result)
     }
 }

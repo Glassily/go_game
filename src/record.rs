@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+
+use crate::Node;
 use crate::board::{Board, IllegalMoveError};
 use crate::model::{Color, Move, Point};
 use crate::sgf::{GameTree, Property};
@@ -9,41 +12,24 @@ pub struct GoRecord {
     /// 游戏树（包含所有节点和着法）
     pub tree: GameTree,
     /// 当前节点索引
-    pub current: Option<usize>,
+    current_idx: Option<usize>,
     /// 棋盘状态
     pub board: Board,
     /// 黑方提子数（白方被吃的子数）
     pub black_captures: usize,
     /// 白方提子数（黑方被吃的子数）
     pub white_captures: usize,
-    /// 历史版本栈（用于撤销）
-    history: Vec<GameTree>,
+    /// 历史版本栈（用于撤销），保存 (树, 当前节点)
+    history: Vec<(GameTree, Option<usize>)>,
     /// 未来版本栈（用于重做）
-    future: Vec<GameTree>,
+    future: Vec<(GameTree, Option<usize>)>,
     /// 当前劫点位置
     ko_point: Option<Point>,
 }
 
 impl Default for GoRecord {
     fn default() -> Self {
-        let mut root_data = std::collections::HashMap::new();
-        root_data.insert(Property::GM, vec!["1".to_string()]);
-        root_data.insert(Property::FF, vec!["4".to_string()]);
-        root_data.insert(Property::SZ, vec!["19".to_string()]);
-        root_data.insert(Property::RU, vec!["Japanese".to_string()]);
-        root_data.insert(Property::KM, vec!["6.5".to_string()]);
-        let tree = GameTree::from(root_data);
-
-        Self {
-            tree,
-            current: None,
-            board: Board::new(19),
-            black_captures: 0,
-            white_captures: 0,
-            history: Vec::new(),
-            future: Vec::new(),
-            ko_point: None,
-        }
+        Self::new(19)
     }
 }
 
@@ -54,11 +40,13 @@ impl GoRecord {
         root_data.insert(Property::GM, vec!["1".to_string()]);
         root_data.insert(Property::FF, vec!["4".to_string()]);
         root_data.insert(Property::SZ, vec![size.to_string()]);
+        root_data.insert(Property::RU, vec!["Japanese".to_string()]);
+        root_data.insert(Property::KM, vec!["6.5".to_string()]);
         let tree = GameTree::from(root_data);
 
         Self {
             tree,
-            current: None,
+            current_idx: None,
             board: Board::new(size),
             black_captures: 0,
             white_captures: 0,
@@ -66,6 +54,11 @@ impl GoRecord {
             future: Vec::new(),
             ko_point: None,
         }
+    }
+
+    /// 返回当前节点索引
+    pub fn current_index(&self) -> Option<usize> {
+        self.current_idx
     }
 
     /// 设置根节点属性
@@ -84,30 +77,30 @@ impl GoRecord {
 
     /// 移动到上一个节点
     pub fn go_prev(&mut self) {
-        if let Some(c) = self.current {
-            self.current = self.tree.get_parent(c);
-            self.rebuild_board_to(self.current);
+        if let Some(c) = self.current_idx {
+            self.current_idx = self.tree.get_parent(c);
+            self.rebuild_board_to(self.current_idx);
         }
     }
 
     /// 移动到下一个节点（主变体）
     pub fn go_next(&mut self) {
-        if let Some(c) = self.current {
+        if let Some(c) = self.current_idx {
             let ch = self.tree.get_children(c);
             if !ch.is_empty() {
-                self.current = Some(ch[0]);
-                self.rebuild_board_to(self.current);
+                self.current_idx = Some(ch[0]);
+                self.rebuild_board_to(self.current_idx);
             }
         } else if let Some(r) = self.tree.get_root() {
-            self.current = Some(r);
-            self.rebuild_board_to(self.current);
+            self.current_idx = Some(r);
+            self.rebuild_board_to(self.current_idx);
         }
     }
 
     /// 移动到第一个节点
     pub fn go_first(&mut self) {
-        self.current = self.tree.get_root();
-        self.rebuild_board_to(self.current);
+        self.current_idx = self.tree.get_root();
+        self.rebuild_board_to(self.current_idx);
     }
 
     /// 移动到最后一个节点（主变体末端）
@@ -120,14 +113,14 @@ impl GoRecord {
             }
             cur = Some(ch[0]);
         }
-        self.current = cur;
-        self.rebuild_board_to(self.current);
+        self.current_idx = cur;
+        self.rebuild_board_to(self.current_idx);
     }
 
     /// 移动到指定节点
     pub fn go_to(&mut self, idx: usize) {
-        self.current = Some(idx);
-        self.rebuild_board_to(self.current);
+        self.current_idx = Some(idx);
+        self.rebuild_board_to(self.current_idx);
     }
 
     /// 获取主变体路径上的所有节点索引
@@ -147,46 +140,15 @@ impl GoRecord {
 
     /// 获取当前节点的子节点着法（变体提示）
     ///
-    /// 返回所有子节点的着法位置和颜色
-    pub fn get_variation_moves(&self) -> Vec<(Color, Point)> {
+    /// 返回所有子节点的着法颜色和位置（pass 时位置为 None）
+    pub fn get_variation_moves(&self) -> Vec<(Color, Option<Point>)> {
         let mut moves = Vec::new();
-        if let Some(c) = self.current {
-            for &child in self.tree.get_children(c) {
+        let parent = self.current_idx.or(self.tree.get_root());
+        if let Some(p) = parent {
+            for &child in self.tree.get_children(p) {
                 if let Some(node) = self.tree.get_node(child) {
-                    let size = self.board.size;
-                    if let Some(v) = node.get(&Property::B) {
-                        if let Some(s) = v.first() {
-                            if let Some(pt) = Point::from_sgf(s, size) {
-                                moves.push((Color::Black, pt));
-                            }
-                        }
-                    }
-                    if let Some(v) = node.get(&Property::W) {
-                        if let Some(s) = v.first() {
-                            if let Some(pt) = Point::from_sgf(s, size) {
-                                moves.push((Color::White, pt));
-                            }
-                        }
-                    }
-                }
-            }
-        } else if let Some(r) = self.tree.get_root() {
-            for &child in self.tree.get_children(r) {
-                if let Some(node) = self.tree.get_node(child) {
-                    let size = self.board.size;
-                    if let Some(v) = node.get(&Property::B) {
-                        if let Some(s) = v.first() {
-                            if let Some(pt) = Point::from_sgf(s, size) {
-                                moves.push((Color::Black, pt));
-                            }
-                        }
-                    }
-                    if let Some(v) = node.get(&Property::W) {
-                        if let Some(s) = v.first() {
-                            if let Some(pt) = Point::from_sgf(s, size) {
-                                moves.push((Color::White, pt));
-                            }
-                        }
+                    if let Some(mv) = node_to_move(node, self.board.size) {
+                        moves.push(mv);
                     }
                 }
             }
@@ -218,20 +180,22 @@ impl GoRecord {
 
         for &i in &path {
             if let Some(node) = self.tree.get_node(i) {
+                // 处理黑棋着法
                 if let Some(v) = node.get(&Property::B) {
                     if let Some(s) = v.first() {
                         if let Some(mv) = property_str_to_move(s, Color::Black, size) {
                             let (captured, ko) = self.board.apply_move_uncheck(&mv);
-                            self.black_captures += captured.len() as usize;
+                            self.black_captures += captured.len();
                             self.ko_point = ko;
                         }
                     }
                 }
+                // 处理白棋着法
                 if let Some(v) = node.get(&Property::W) {
                     if let Some(s) = v.first() {
                         if let Some(mv) = property_str_to_move(s, Color::White, size) {
                             let (captured, ko) = self.board.apply_move_uncheck(&mv);
-                            self.white_captures += captured.len() as usize;
+                            self.white_captures += captured.len();
                             self.ko_point = ko;
                         }
                     }
@@ -242,27 +206,27 @@ impl GoRecord {
 
     /// 保存当前状态快照
     fn push_snapshot(&mut self) {
-        self.history.push(self.tree.clone());
+        self.history.push((self.tree.clone(), self.current_idx));
         self.future.clear();
     }
 
     /// 撤销操作
     pub fn undo(&mut self) {
-        if let Some(prev) = self.history.pop() {
-            self.future.push(self.tree.clone());
-            self.tree = prev;
-            self.current = self.tree.get_root();
-            self.rebuild_board_to(self.current);
+        if let Some((prev_tree, prev_idx)) = self.history.pop() {
+            self.future.push((self.tree.clone(), self.current_idx));
+            self.tree = prev_tree;
+            self.current_idx = prev_idx;
+            self.rebuild_board_to(self.current_idx);
         }
     }
 
     /// 重做操作
     pub fn redo(&mut self) {
-        if let Some(next) = self.future.pop() {
-            self.history.push(self.tree.clone());
-            self.tree = next;
-            self.current = self.tree.get_root();
-            self.rebuild_board_to(self.current);
+        if let Some((next_tree, next_idx)) = self.future.pop() {
+            self.history.push((self.tree.clone(), self.current_idx));
+            self.tree = next_tree;
+            self.current_idx = next_idx;
+            self.rebuild_board_to(self.current_idx);
         }
     }
 
@@ -281,16 +245,8 @@ impl GoRecord {
     /// 检查着法合法性后添加到游戏树
     /// 如果该着法已作为子节点存在，则导航到该分支而非创建新节点
     pub fn add_move(&mut self, mv: Move) -> Result<(), IllegalMoveError> {
-        if let Err(e) = self.board.is_legal(&mv, self.ko_point, false) {
-            return Err(e);
-        }
-
-        let (captured, ko) = self.board.apply_move_uncheck(&mv);
-        match mv.color {
-            Color::Black => self.black_captures += captured.len() as usize,
-            Color::White => self.white_captures += captured.len() as usize,
-        }
-        self.ko_point = ko;
+        // 先检查合法性（不改变棋盘状态）
+        self.board.is_legal(&mv, self.ko_point, false)?;
 
         let prop = match mv.color {
             Color::Black => Property::B,
@@ -299,27 +255,15 @@ impl GoRecord {
         let pt_str = mv.point.map(|p| p.to_sgf()).unwrap_or_default();
 
         // 检查该着法是否已作为子节点存在
-        if let Some(cur) = self.current {
-            for &child in self.tree.get_children(cur) {
+        let parent = self.current_idx.or(self.tree.get_root());
+        if let Some(p) = parent {
+            for &child in self.tree.get_children(p) {
                 if let Some(node) = self.tree.get_node(child) {
                     if let Some(v) = node.get(&prop) {
                         if v.first().map(|s| s.as_str()) == Some(&pt_str) {
-                            // 该着法已存在，导航到该分支
-                            self.rebuild_board_to(Some(child));
-                            self.current = Some(child);
-                            return Ok(());
-                        }
-                    }
-                }
-            }
-        } else if let Some(root) = self.tree.get_root() {
-            for &child in self.tree.get_children(root) {
-                if let Some(node) = self.tree.get_node(child) {
-                    if let Some(v) = node.get(&prop) {
-                        if v.first().map(|s| s.as_str()) == Some(&pt_str) {
-                            // 该着法已存在，导航到该分支
-                            self.rebuild_board_to(Some(child));
-                            self.current = Some(child);
+                            // 已存在，直接导航（不应用着法，不 push_snapshot）
+                            self.current_idx = Some(child);
+                            self.rebuild_board_to(self.current_idx);
                             return Ok(());
                         }
                     }
@@ -329,18 +273,26 @@ impl GoRecord {
 
         // 着法不存在，创建新节点
         self.push_snapshot();
-        let mut map = std::collections::HashMap::new();
+        let (captured, ko) = self.board.apply_move_uncheck(&mv);
+        match mv.color {
+            Color::Black => self.black_captures += captured.len(),
+            Color::White => self.white_captures += captured.len(),
+        }
+        self.ko_point = ko;
+
+        let mut map = HashMap::new();
         map.insert(prop, vec![pt_str]);
-        let parent = self.current.or(self.tree.get_root());
-        let _ = self.tree.add_node(parent, map);
-        self.current = Some(self.tree.nodes.len() - 1);
+        let parent = self.current_idx.or(self.tree.get_root());
+        let idx = self.tree.add_node(parent, map).unwrap();
+        self.current_idx = Some(idx);
         Ok(())
     }
 
     /// 获取下一步该谁走
     pub fn next_to_move(&self) -> Color {
         let mut count = 0usize;
-        if let Some(mut n) = self.current {
+        if let Some(mut n) = self.current_idx {
+            // 从当前节点向上回溯，统计 B/W 节点数
             while let Some(p) = self.tree.get_parent(n) {
                 if let Some(node) = self.tree.get_node(n) {
                     if node.contains(Property::B) || node.contains(Property::W) {
@@ -349,6 +301,7 @@ impl GoRecord {
                 }
                 n = p;
             }
+            // 根节点
             if let Some(node) = self.tree.get_node(n) {
                 if node.contains(Property::B) || node.contains(Property::W) {
                     count += 1;
@@ -381,10 +334,10 @@ impl GoRecord {
         d
     }
 
-    /// 获取当前节点的手数
+    /// 获取当前节点的手数（包含 pass）
     pub fn current_move_number(&self) -> usize {
         let mut cnt = 0usize;
-        if let Some(c) = self.current {
+        if let Some(c) = self.current_idx {
             let mut n = Some(c);
             while let Some(i) = n {
                 if let Some(node) = self.tree.get_node(i) {
@@ -398,68 +351,73 @@ impl GoRecord {
         cnt
     }
 
-    /// 获取主变体总手数
+    /// 获取主变体总手数（只统计含有 B 或 W 的节点数）
     pub fn total_moves(&self) -> usize {
-        self.mainline().len()
+        self.mainline()
+            .iter()
+            .filter(|&&idx| {
+                self.tree
+                    .get_node(idx)
+                    .map(|n| n.contains(Property::B) || n.contains(Property::W))
+                    .unwrap_or(false)
+            })
+            .count()
     }
 
-    /// 获取当前着法的位置和手数
-    ///
-    /// 返回 (棋子颜色, 位置, 手数)
-    pub fn get_current_move_info(&self) -> Option<(Color, Point, usize)> {
-        let idx = self.current?;
+    /// 获取当前着法的信息（颜色、位置、手数）
+    /// pass 时位置为 None
+    pub fn get_current_move_info(&self) -> Option<(Color, Option<Point>, usize)> {
+        let idx = self.current_idx?;
         let node = self.tree.get_node(idx)?;
-        let mut move_number = 0usize;
-        if let Some(c) = self.current {
-            let mut n = Some(c);
-            while let Some(i) = n {
-                if let Some(node) = self.tree.get_node(i) {
-                    if node.contains(Property::B) || node.contains(Property::W) {
-                        move_number += 1;
-                    }
-                }
-                n = self.tree.get_parent(i);
-            }
-        }
+        let move_number = self.current_move_number(); // 此处已经是从根到当前的手数
+
         if let Some(v) = node.get(&Property::B) {
-            if let Some(s) = v.first() {
-                if let Some(pt) = Point::from_sgf(s, self.board.size) {
-                    return Some((Color::Black, pt, move_number));
-                }
-            }
+            let s = v.first()?;
+            let pt = if s.is_empty() {
+                None
+            } else {
+                Point::from_sgf(s, self.board.size)
+            };
+            return Some((Color::Black, pt, move_number));
         }
         if let Some(v) = node.get(&Property::W) {
-            if let Some(s) = v.first() {
-                if let Some(pt) = Point::from_sgf(s, self.board.size) {
-                    return Some((Color::White, pt, move_number));
-                }
-            }
+            let s = v.first()?;
+            let pt = if s.is_empty() {
+                None
+            } else {
+                Point::from_sgf(s, self.board.size)
+            };
+            return Some((Color::White, pt, move_number));
         }
         None
     }
 
-    /// 获取所有着法的位置和手数
-    ///
-    /// 返回 Vec<(棋子颜色, 位置, 手数)>
-    pub fn get_all_moves(&self) -> Vec<(Color, Point, usize)> {
+    /// 获取主变体所有着法（颜色、位置、手数，pass 时位置为 None）
+    pub fn get_all_moves(&self) -> Vec<(Color, Option<Point>, usize)> {
         let mut moves = Vec::new();
         let mut move_number = 0usize;
         for idx in self.mainline() {
             if let Some(node) = self.tree.get_node(idx) {
                 if let Some(v) = node.get(&Property::B) {
                     if let Some(s) = v.first() {
-                        if let Some(pt) = Point::from_sgf(s, self.board.size) {
-                            move_number += 1;
-                            moves.push((Color::Black, pt, move_number));
-                        }
+                        move_number += 1;
+                        let pt = if s.is_empty() {
+                            None
+                        } else {
+                            Point::from_sgf(s, self.board.size)
+                        };
+                        moves.push((Color::Black, pt, move_number));
                     }
                 }
                 if let Some(v) = node.get(&Property::W) {
                     if let Some(s) = v.first() {
-                        if let Some(pt) = Point::from_sgf(s, self.board.size) {
-                            move_number += 1;
-                            moves.push((Color::White, pt, move_number));
-                        }
+                        move_number += 1;
+                        let pt = if s.is_empty() {
+                            None
+                        } else {
+                            Point::from_sgf(s, self.board.size)
+                        };
+                        moves.push((Color::White, pt, move_number));
                     }
                 }
             }
@@ -469,35 +427,41 @@ impl GoRecord {
 
     /// 获取从根到当前位置的所有着法（包括当前位置）
     ///
-    /// 返回 Vec<(棋子颜色, 位置, 手数)>
-    pub fn get_moves_to_current(&self) -> Vec<(Color, Point, usize)> {
+    /// 返回 (颜色, 位置, 手数)，pass 时位置为 None
+    pub fn get_moves_to_current(&self) -> Vec<(Color, Option<Point>, usize)> {
         let mut moves = Vec::new();
         let mut move_number = 0usize;
-        if let Some(cur) = self.current {
+        if let Some(cur) = self.current_idx {
             let mut path = Vec::new();
             let mut idx = cur;
             while let Some(parent) = self.tree.get_parent(idx) {
                 path.push(idx);
                 idx = parent;
             }
-            path.push(idx);
+            path.push(idx); // 根节点
             path.reverse();
             for &node_idx in &path {
                 if let Some(node) = self.tree.get_node(node_idx) {
                     if let Some(v) = node.get(&Property::B) {
                         if let Some(s) = v.first() {
-                            if let Some(pt) = Point::from_sgf(s, self.board.size) {
-                                move_number += 1;
-                                moves.push((Color::Black, pt, move_number));
-                            }
+                            move_number += 1;
+                            let pt = if s.is_empty() {
+                                None
+                            } else {
+                                Point::from_sgf(s, self.board.size)
+                            };
+                            moves.push((Color::Black, pt, move_number));
                         }
                     }
                     if let Some(v) = node.get(&Property::W) {
                         if let Some(s) = v.first() {
-                            if let Some(pt) = Point::from_sgf(s, self.board.size) {
-                                move_number += 1;
-                                moves.push((Color::White, pt, move_number));
-                            }
+                            move_number += 1;
+                            let pt = if s.is_empty() {
+                                None
+                            } else {
+                                Point::from_sgf(s, self.board.size)
+                            };
+                            moves.push((Color::White, pt, move_number));
                         }
                     }
                 }
@@ -561,64 +525,37 @@ impl GoRecord {
         self.push_snapshot();
         if let Some(root) = self.tree.get_root() {
             if let Some(node) = self.tree.get_node_mut(root) {
-                if let Some(ref v) = info.black {
-                    node.set(Property::PB, vec![v.clone()]);
-                }
-                if let Some(ref v) = info.white {
-                    node.set(Property::PW, vec![v.clone()]);
-                }
-                if let Some(ref v) = info.black_rank {
-                    node.set(Property::BR, vec![v.clone()]);
-                }
-                if let Some(ref v) = info.white_rank {
-                    node.set(Property::WR, vec![v.clone()]);
-                }
-                if let Some(ref v) = info.event {
-                    node.set(Property::EV, vec![v.clone()]);
-                }
-                if let Some(ref v) = info.round {
-                    node.set(Property::RO, vec![v.clone()]);
-                }
-                if let Some(ref v) = info.place {
-                    node.set(Property::PC, vec![v.clone()]);
-                }
-                if let Some(ref v) = info.date {
-                    node.set(Property::DT, vec![v.clone()]);
-                }
-                if let Some(ref v) = info.komi {
-                    node.set(Property::KM, vec![v.clone()]);
-                }
-                if let Some(ref v) = info.result {
-                    node.set(Property::RE, vec![v.clone()]);
-                }
-                if let Some(ref v) = info.game_name {
-                    node.set(Property::GN, vec![v.clone()]);
-                }
-                if let Some(ref v) = info.rules {
-                    node.set(Property::RU, vec![v.clone()]);
-                }
-                if let Some(ref v) = info.handicap {
-                    node.set(Property::HA, vec![v.clone()]);
-                }
-                if let Some(ref v) = info.black_team {
-                    node.set(Property::BT, vec![v.clone()]);
-                }
-                if let Some(ref v) = info.white_team {
-                    node.set(Property::WT, vec![v.clone()]);
-                }
-                if let Some(ref v) = info.user {
-                    node.set(Property::US, vec![v.clone()]);
-                }
+                set_info_field(node, Property::PB, &info.black);
+                set_info_field(node, Property::PW, &info.white);
+                set_info_field(node, Property::BR, &info.black_rank);
+                set_info_field(node, Property::WR, &info.white_rank);
+                set_info_field(node, Property::EV, &info.event);
+                set_info_field(node, Property::RO, &info.round);
+                set_info_field(node, Property::PC, &info.place);
+                set_info_field(node, Property::DT, &info.date);
+                set_info_field(node, Property::KM, &info.komi);
+                set_info_field(node, Property::RE, &info.result);
+                set_info_field(node, Property::GN, &info.game_name);
+                set_info_field(node, Property::RU, &info.rules);
+                set_info_field(node, Property::HA, &info.handicap);
+                set_info_field(node, Property::BT, &info.black_team);
+                set_info_field(node, Property::WT, &info.white_team);
+                set_info_field(node, Property::US, &info.user);
             }
         }
     }
 
-    /// 加载 SGF 游戏树
+    /// 加载 SGF 游戏树（清空撤销历史）
     pub fn load_sgf(&mut self, tree: GameTree) {
-        self.push_snapshot();
+        // 清空历史，防止 undo 回到上一局
+        self.history.clear();
+        self.future.clear();
+
         self.tree = tree;
-        self.current = self.tree.get_root();
-        if let Some(idx) = self.current {
+        self.current_idx = self.tree.get_root();
+
+        // 解析棋盘大小
+        if let Some(idx) = self.current_idx {
             if let Some(node) = self.tree.get_node(idx) {
                 if let Some(sz) = node.get_first(Property::SZ) {
                     let sz_val = sz.split(':').next().unwrap_or(sz);
@@ -628,7 +565,7 @@ impl GoRecord {
                 }
             }
         }
-        self.rebuild_board_to(self.current);
+        self.rebuild_board_to(self.current_idx);
     }
 
     /// 查找指定位置的着法节点
@@ -687,12 +624,53 @@ impl GoRecord {
     }
 }
 
-/// 将 SGF 属性字符串转换为着法
+// ==================== 辅助函数 ====================
+
+/// 从节点中提取着法（颜色，位置），pass 时位置为 None
+fn node_to_move(node: &Node, size: u8) -> Option<(Color, Option<Point>)> {
+    if let Some(v) = node.get(&Property::B) {
+        if let Some(s) = v.first() {
+            let pt = if s.is_empty() {
+                None
+            } else {
+                Point::from_sgf(s, size)
+            };
+            return Some((Color::Black, pt));
+        }
+    }
+    if let Some(v) = node.get(&Property::W) {
+        if let Some(s) = v.first() {
+            let pt = if s.is_empty() {
+                None
+            } else {
+                Point::from_sgf(s, size)
+            };
+            return Some((Color::White, pt));
+        }
+    }
+    None
+}
+
+/// 将 SGF 属性字符串转换为着法（pass 也返回 Some）
 fn property_str_to_move(s: &str, color: Color, board_size: u8) -> Option<Move> {
     if s.is_empty() {
         Some(Move::pass(color))
     } else {
         Point::from_sgf(s, board_size).map(|pt| Move::new(color, pt))
+    }
+}
+
+/// 辅助：设置信息字段（存在则设置，不存在则删除）
+fn set_info_field(node: &mut Node, prop: Property, val: &Option<String>) {
+    if let Some(v) = val {
+        if v.is_empty() {
+            node.data.remove(&prop);
+        } else {
+            node.set(prop, vec![v.clone()]);
+        }
+    } else {
+        // None 表示删除该属性
+        node.data.remove(&prop);
     }
 }
 

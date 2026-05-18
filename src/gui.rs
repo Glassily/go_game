@@ -107,6 +107,15 @@ impl GoGui {
             scroll_accumulator: 0.0,
         }
     }
+
+    /// 在任何可能改变 current 的操作后同步评论编辑框
+    fn sync_comment_edit(&mut self) {
+        if let Some(idx) = self.record.current_index() {
+            self.comment_edit = self.record.get_comment(idx).unwrap_or_default();
+        } else {
+            self.comment_edit.clear();
+        }
+    }
 }
 
 impl eframe::App for GoGui {
@@ -114,15 +123,19 @@ impl eframe::App for GoGui {
         ui.input(|input| {
             if input.key_pressed(egui::Key::ArrowLeft) {
                 self.record.go_prev();
+                self.sync_comment_edit();
             }
             if input.key_pressed(egui::Key::ArrowRight) {
                 self.record.go_next();
+                self.sync_comment_edit();
             }
             if input.key_pressed(egui::Key::Home) {
                 self.record.go_first();
+                self.sync_comment_edit();
             }
             if input.key_pressed(egui::Key::End) {
                 self.record.go_last();
+                self.sync_comment_edit();
             }
             if input.modifiers.ctrl && input.key_pressed(egui::Key::Z) {
                 if input.modifiers.shift {
@@ -130,15 +143,25 @@ impl eframe::App for GoGui {
                 } else {
                     self.record.undo();
                 }
+                self.sync_comment_edit();
             }
-            // 鼠标滚轮沿主线下前进/后退（滚轮每格走一步，每格约36度）
-            self.scroll_accumulator += input.smooth_scroll_delta.y;
-            if self.scroll_accumulator >= 36.0 {
+            // // 鼠标滚轮沿主线下前进/后退（滚轮每格走一步，每格约36度）
+            // self.scroll_accumulator += input.smooth_scroll_delta.y;
+            // if self.scroll_accumulator >= 36.0 {
+            //     self.record.go_next();
+            //     self.scroll_accumulator = 0.0;
+            // } else if self.scroll_accumulator <= -36.0 {
+            //     self.record.go_prev();
+            //     self.scroll_accumulator = 0.0;
+            // }
+
+            // 鼠标滚轮沿主线下前进/后退（滚轮一格走一步）
+            if input.smooth_scroll_delta.y >= 1.0 {
                 self.record.go_next();
-                self.scroll_accumulator = 0.0;
-            } else if self.scroll_accumulator <= -36.0 {
+                self.sync_comment_edit();
+            } else if input.smooth_scroll_delta.y <= -1.0 {
                 self.record.go_prev();
-                self.scroll_accumulator = 0.0;
+                self.sync_comment_edit();
             }
         });
         self.top_panel(ui);
@@ -336,6 +359,7 @@ impl GoGui {
                     egui::pos2(avail.right(), avail.bottom()),
                 );
 
+                // --- 棋盘区域 ---
                 ui.scope_builder(
                     egui::UiBuilder::new()
                         .sense(Sense::click())
@@ -522,7 +546,7 @@ impl GoGui {
                                     egui::Sense::click(),
                                 );
                                 let center = node_rect.center();
-                                if self.record.current == Some(*idx) {
+                                if self.record.current_index() == Some(*idx) {
                                     painter.rect_filled(
                                         node_rect.expand(4.0),
                                         4.0,
@@ -587,7 +611,7 @@ impl GoGui {
                                 );
                                 ui.horizontal(|ui| {
                                     if ui.button("Save").clicked() {
-                                        if let Some(i) = self.record.current {
+                                        if let Some(i) = self.record.current_index() {
                                             self.record.set_comment(i, self.comment_edit.clone());
                                         }
                                     }
@@ -1096,12 +1120,13 @@ impl GoGui {
 }
 
 fn decode_sgf_content(bytes: &[u8]) -> String {
-    if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
-        return String::from_utf8_lossy(&bytes[3..]).to_string();
-    }
-
-    if bytes.starts_with(&[0xFF, 0xFE]) || bytes.starts_with(&[0xFE, 0xFF]) {
+    if bytes.starts_with(&[0xFF, 0xFE]) {
         let (decoded, _, had_errors) = encoding_rs::UTF_16LE.decode(bytes);
+        if !had_errors {
+            return decoded.into_owned();
+        }
+    } else if bytes.starts_with(&[0xFE, 0xFF]) {
+        let (decoded, _, had_errors) = encoding_rs::UTF_16BE.decode(bytes);
         if !had_errors {
             return decoded.into_owned();
         }
@@ -1154,10 +1179,10 @@ fn draw_board(
     rect: egui::Rect,
     board: &Board,
     show_coords: bool,
-    next_moves: &[(go_game::model::Color, Point)],
-    last_move: Option<(Point, Color)>,
+    next_moves: &[(Color, Option<Point>)],   // 修改：支持 pass
+    last_move: Option<(Point, Color)>,       // pass 时传入 None
     show_move_numbers: bool,
-    moves_to_show: &[(Color, Point, usize)],
+    moves_to_show: &[(Color, Option<Point>, usize)], // 修改：支持 pass
 ) {
     let painter = ui.painter_at(rect);
     let size = board.size as usize;
@@ -1172,33 +1197,26 @@ fn draw_board(
     );
     let cell = drawing_rect.width() / ((size as f32 - 1.0).max(1.0));
 
+    // 网格线
     for i in 0..size {
         let x = drawing_rect.left() + i as f32 * cell;
         let y = drawing_rect.top() + i as f32 * cell;
         painter.line_segment(
-            [
-                egui::pos2(x, drawing_rect.top()),
-                egui::pos2(x, drawing_rect.bottom()),
-            ],
+            [egui::pos2(x, drawing_rect.top()), egui::pos2(x, drawing_rect.bottom())],
             Stroke::new(1.2, Color32::BLACK),
         );
         painter.line_segment(
-            [
-                egui::pos2(drawing_rect.left(), y),
-                egui::pos2(drawing_rect.right(), y),
-            ],
+            [egui::pos2(drawing_rect.left(), y), egui::pos2(drawing_rect.right(), y)],
             Stroke::new(1.2, Color32::BLACK),
         );
     }
 
-    let star_points = if size == 19 {
-        vec![3, 9, 15]
-    } else if size == 13 {
-        vec![3, 9]
-    } else if size == 9 {
-        vec![2, 6]
-    } else {
-        vec![]
+    // 星位
+    let star_points = match size {
+        19 => vec![3, 9, 15],
+        13 => vec![3, 9],
+        9 => vec![2, 6],
+        _ => vec![],
     };
     for &sx in &star_points {
         for &sy in &star_points {
@@ -1211,12 +1229,10 @@ fn draw_board(
         }
     }
 
+    // 绘制所有棋子
     for y in 0..size {
         for x in 0..size {
-            let pt = Point {
-                x: x as u8,
-                y: y as u8,
-            };
+            let pt = Point { x: x as u8, y: y as u8 };
             if let Some(col) = board.get(pt) {
                 let cx = drawing_rect.left() + x as f32 * cell;
                 let cy = drawing_rect.top() + y as f32 * cell;
@@ -1238,9 +1254,9 @@ fn draw_board(
         }
     }
 
-    // 绘制下一步提示（半透明棋子）
-    if !next_moves.is_empty() {
-        for &(col, pt) in next_moves {
+    // 绘制下一步提示（半透明棋子，跳过 pass）
+    for &(col, pt_opt) in next_moves {
+        if let Some(pt) = pt_opt {
             let cx = drawing_rect.left() + pt.x as f32 * cell;
             let cy = drawing_rect.top() + pt.y as f32 * cell;
             let radius = cell * 0.42;
@@ -1262,39 +1278,44 @@ fn draw_board(
         }
     }
 
-    // 绘制最后落子高亮（红色圆圈）和手数
-    for &(col, pt, move_num) in moves_to_show {
-        let cx = drawing_rect.left() + pt.x as f32 * cell;
-        let cy = drawing_rect.top() + pt.y as f32 * cell;
+    // 独立绘制最后落子高亮（红色圆圈），不受 show_move_numbers 影响
+    if let Some((lp, _)) = last_move {
+        let cx = drawing_rect.left() + lp.x as f32 * cell;
+        let cy = drawing_rect.top() + lp.y as f32 * cell;
         let radius = cell * 0.42;
-        // 绘制红色边框标记最后落子
-        if last_move.map(|(lp, _)| lp == pt).unwrap_or(false) {
-            painter.circle_stroke(
-                egui::pos2(cx, cy),
-                radius * 1.15,
-                Stroke::new(2.0, Color32::from_rgb(220, 50, 50)),
-            );
-        }
-        // 绘制手数
-        if show_move_numbers {
-            let text = move_num.to_string();
-            let font_size = (cell * 0.4).max(8.0);
-            let font_id = egui::FontId::proportional(font_size);
-            let text_color = if col == Color::Black {
-                Color32::WHITE
-            } else {
-                Color32::BLACK
-            };
-            painter.text(
-                egui::pos2(cx, cy),
-                egui::Align2::CENTER_CENTER,
-                text,
-                font_id,
-                text_color,
-            );
+        painter.circle_stroke(
+            egui::pos2(cx, cy),
+            radius * 1.15,
+            Stroke::new(2.0, Color32::from_rgb(220, 50, 50)),
+        );
+    }
+
+    // 绘制手数（仅对有效位置）
+    if show_move_numbers {
+        for &(col, pt_opt, move_num) in moves_to_show {
+            if let Some(pt) = pt_opt {
+                let cx = drawing_rect.left() + pt.x as f32 * cell;
+                let cy = drawing_rect.top() + pt.y as f32 * cell;
+                let font_size = (cell * 0.4).max(8.0);
+                let font_id = egui::FontId::proportional(font_size);
+                let text = move_num.to_string();
+                let text_color = if col == Color::Black {
+                    Color32::WHITE
+                } else {
+                    Color32::BLACK
+                };
+                painter.text(
+                    egui::pos2(cx, cy),
+                    egui::Align2::CENTER_CENTER,
+                    text,
+                    font_id,
+                    text_color,
+                );
+            }
         }
     }
 
+    // 坐标标签
     if show_coords {
         let font_id = egui::FontId::proportional((cell * 0.35).max(1.0));
         for x in 0..size {
