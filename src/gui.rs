@@ -145,23 +145,15 @@ impl eframe::App for GoGui {
                 }
                 self.sync_comment_edit();
             }
-            // // 鼠标滚轮沿主线下前进/后退（滚轮每格走一步，每格约36度）
-            // self.scroll_accumulator += input.smooth_scroll_delta.y;
-            // if self.scroll_accumulator >= 36.0 {
-            //     self.record.go_next();
-            //     self.scroll_accumulator = 0.0;
-            // } else if self.scroll_accumulator <= -36.0 {
-            //     self.record.go_prev();
-            //     self.scroll_accumulator = 0.0;
-            // }
-
-            // 鼠标滚轮沿主线下前进/后退（滚轮一格走一步）
-            if input.smooth_scroll_delta.y >= 1.0 {
+            
+            // 鼠标滚轮沿主线下前进/后退（滚轮每格走一步，每格约36度）
+            self.scroll_accumulator += input.smooth_scroll_delta.y;
+            if self.scroll_accumulator >= 36.0 {
                 self.record.go_next();
-                self.sync_comment_edit();
-            } else if input.smooth_scroll_delta.y <= -1.0 {
+                self.scroll_accumulator = 0.0;
+            } else if self.scroll_accumulator <= -36.0 {
                 self.record.go_prev();
-                self.sync_comment_edit();
+                self.scroll_accumulator = 0.0;
             }
         });
         self.top_panel(ui);
@@ -1179,8 +1171,8 @@ fn draw_board(
     rect: egui::Rect,
     board: &Board,
     show_coords: bool,
-    next_moves: &[(Color, Option<Point>)],   // 修改：支持 pass
-    last_move: Option<(Point, Color)>,       // pass 时传入 None
+    next_moves: &[(Color, Option<Point>)], // 修改：支持 pass
+    last_move: Option<(Option<Point>, Color)>, // pass 时传入 None
     show_move_numbers: bool,
     moves_to_show: &[(Color, Option<Point>, usize)], // 修改：支持 pass
 ) {
@@ -1202,11 +1194,17 @@ fn draw_board(
         let x = drawing_rect.left() + i as f32 * cell;
         let y = drawing_rect.top() + i as f32 * cell;
         painter.line_segment(
-            [egui::pos2(x, drawing_rect.top()), egui::pos2(x, drawing_rect.bottom())],
+            [
+                egui::pos2(x, drawing_rect.top()),
+                egui::pos2(x, drawing_rect.bottom()),
+            ],
             Stroke::new(1.2, Color32::BLACK),
         );
         painter.line_segment(
-            [egui::pos2(drawing_rect.left(), y), egui::pos2(drawing_rect.right(), y)],
+            [
+                egui::pos2(drawing_rect.left(), y),
+                egui::pos2(drawing_rect.right(), y),
+            ],
             Stroke::new(1.2, Color32::BLACK),
         );
     }
@@ -1232,7 +1230,10 @@ fn draw_board(
     // 绘制所有棋子
     for y in 0..size {
         for x in 0..size {
-            let pt = Point { x: x as u8, y: y as u8 };
+            let pt = Point {
+                x: x as u8,
+                y: y as u8,
+            };
             if let Some(col) = board.get(pt) {
                 let cx = drawing_rect.left() + x as f32 * cell;
                 let cy = drawing_rect.top() + y as f32 * cell;
@@ -1279,7 +1280,7 @@ fn draw_board(
     }
 
     // 独立绘制最后落子高亮（红色圆圈），不受 show_move_numbers 影响
-    if let Some((lp, _)) = last_move {
+    if let Some((Some(lp), _)) = last_move {
         let cx = drawing_rect.left() + lp.x as f32 * cell;
         let cy = drawing_rect.top() + lp.y as f32 * cell;
         let radius = cell * 0.42;
