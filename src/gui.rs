@@ -145,15 +145,17 @@ impl eframe::App for GoGui {
                 }
                 self.sync_comment_edit();
             }
-            
+
             // 鼠标滚轮沿主线下前进/后退（滚轮每格走一步，每格约36度）
             self.scroll_accumulator += input.smooth_scroll_delta.y;
             if self.scroll_accumulator >= 36.0 {
                 self.record.go_next();
                 self.scroll_accumulator = 0.0;
+                self.sync_comment_edit();
             } else if self.scroll_accumulator <= -36.0 {
                 self.record.go_prev();
                 self.scroll_accumulator = 0.0;
+                self.sync_comment_edit();
             }
         });
         self.top_panel(ui);
@@ -181,15 +183,19 @@ impl GoGui {
             ui.horizontal(|ui| {
                 if ui.button("|<").clicked() {
                     self.record.go_first();
+                    self.sync_comment_edit();
                 }
                 if ui.button("<").clicked() {
                     self.record.go_prev();
+                    self.sync_comment_edit();
                 }
                 if ui.button(">").clicked() {
                     self.record.go_next();
+                    self.sync_comment_edit();
                 }
                 if ui.button("|>").clicked() {
                     self.record.go_last();
+                    self.sync_comment_edit();
                 }
                 ui.label(format!(
                     "Move: {}/{}",
@@ -235,6 +241,7 @@ impl GoGui {
                             match parse(&content) {
                                 Ok(tree) => {
                                     self.record.load_sgf(tree);
+                                    self.sync_comment_edit();
                                     let info = self.record.get_game_info();
                                     self.info_game_name = info.game_name.unwrap_or_default();
                                     self.info_black = info.black.unwrap_or_default();
@@ -1097,6 +1104,7 @@ impl GoGui {
                         self.info_black_team.clear();
                         self.info_white_team.clear();
                         self.info_user.clear();
+                        self.comment_edit.clear();
                         close_dialog = true;
                     }
                     if ui.button("Cancel").clicked() {

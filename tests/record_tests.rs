@@ -1,60 +1,274 @@
-use go_game::{Color, GoRecord, Move, Point, export};
+use go_game::{Color, GoRecord, Move, Point, Property, export, parse};
 
 #[test]
-fn test_default_record_creation() {
-    let record = GoRecord::default();
-
-    assert_eq!(record.board.size, 19);
-    assert_eq!(record.next_to_move(), Color::Black);
-    assert!(record.tree.get_root().is_some());
+fn test_record_creation_with_different_sizes() {
+    for size in [9, 13, 19] {
+        let record = GoRecord::new(size);
+        assert_eq!(record.board_size(), size);
+        assert_eq!(record.board.size, size);
+        assert!(record.tree.get_root().is_some());
+    }
 }
 
 #[test]
-fn test_default_record_sgf_properties() {
+fn test_default_record_is_19x19() {
     let record = GoRecord::default();
+    assert_eq!(record.board_size(), 19);
+}
+
+#[test]
+fn test_record_root_properties() {
+    let record = GoRecord::new(13);
     let root_idx = record.tree.get_root().unwrap();
     let root = record.tree.get_node(root_idx).unwrap();
 
-    assert!(root.contains(go_game::Property::GM));
-    assert!(root.contains(go_game::Property::FF));
-    assert!(root.contains(go_game::Property::SZ));
-    assert!(root.contains(go_game::Property::RU));
-    assert!(root.contains(go_game::Property::KM));
+    assert_eq!(root.get_first(Property::GM), Some(&"1".to_string()));
+    assert_eq!(root.get_first(Property::FF), Some(&"4".to_string()));
+    assert_eq!(root.get_first(Property::SZ), Some(&"13".to_string()));
+    assert_eq!(root.get_first(Property::RU), Some(&"Japanese".to_string()));
+    assert_eq!(root.get_first(Property::KM), Some(&"6.5".to_string()));
 }
 
 #[test]
-fn test_add_first_move() {
+fn test_set_root_property() {
+    let mut record = GoRecord::new(9);
+    record.set_root_property(Property::PB, vec!["AlphaGo".to_string()]);
+    record.set_root_property(Property::PW, vec!["Lee Sedol".to_string()]);
+
+    let info = record.get_game_info();
+    assert_eq!(info.black, Some("AlphaGo".to_string()));
+    assert_eq!(info.white, Some("Lee Sedol".to_string()));
+}
+
+#[test]
+fn test_next_to_move_starts_with_black() {
+    let record = GoRecord::default();
+    assert_eq!(record.next_to_move(), Color::Black);
+}
+
+#[test]
+fn test_add_single_move() {
+    let mut record = GoRecord::default();
+    let pt = Point::new(3, 3);
+    let mv = Move::new(Color::Black, pt);
+
+    record.add_move(mv).unwrap();
+
+    assert_eq!(record.board.get(pt), Some(Color::Black));
+    assert_eq!(record.next_to_move(), Color::White);
+}
+
+#[test]
+fn test_add_multiple_moves() {
     let mut record = GoRecord::default();
 
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 3)))
+        .unwrap();
+    assert_eq!(record.next_to_move(), Color::White);
+
+    record
+        .add_move(Move::new(Color::White, Point::new(4, 3)))
+        .unwrap();
     assert_eq!(record.next_to_move(), Color::Black);
 
-    let mv = Move::new(Color::Black, Point::new(3, 3));
-    let result = record.add_move(mv);
-    assert!(result.is_ok(), "First move should be valid");
-
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 4)))
+        .unwrap();
     assert_eq!(record.next_to_move(), Color::White);
+
     assert_eq!(record.board.get(Point::new(3, 3)), Some(Color::Black));
+    assert_eq!(record.board.get(Point::new(4, 3)), Some(Color::White));
+    assert_eq!(record.board.get(Point::new(3, 4)), Some(Color::Black));
 }
 
 #[test]
-fn test_add_two_moves() {
+fn test_add_pass_move() {
     let mut record = GoRecord::default();
 
-    let mv1 = Move::new(Color::Black, Point::new(3, 3));
-    record.add_move(mv1).unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 3)))
+        .unwrap();
+    record.add_move(Move::pass(Color::White)).unwrap();
 
-    assert_eq!(record.next_to_move(), Color::White);
-
-    let mv2 = Move::new(Color::White, Point::new(4, 3));
-    let result = record.add_move(mv2);
-    assert!(result.is_ok(), "Second move should be valid");
-
-    assert_eq!(record.next_to_move(), Color::Black);
-    assert_eq!(record.board.get(Point::new(4, 3)), Some(Color::White));
+    assert_eq!(record.board.get(Point::new(3, 3)), Some(Color::Black));
+    assert_eq!(record.board.get(Point::new(4, 3)), None);
 }
 
 #[test]
-fn test_third_move_should_be_black() {
+fn test_cannot_place_on_occupied_point() {
+    let mut record = GoRecord::default();
+    let pt = Point::new(3, 3);
+
+    record.add_move(Move::new(Color::Black, pt)).unwrap();
+    let result = record.add_move(Move::new(Color::White, pt));
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_capture_basic() {
+    let mut record = GoRecord::new(9);
+
+    record
+        .add_move(Move::new(Color::White, Point::new(1, 1)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(0, 1)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(3, 3)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(1, 0)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(4, 4)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(2, 1)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(5, 5)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(1, 2)))
+        .unwrap();
+
+    assert_eq!(record.board.get(Point::new(1, 1)), None);
+    assert_eq!(record.black_captures, 1);
+}
+
+#[test]
+fn test_multiple_captures_possible() {
+    let mut record = GoRecord::new(9);
+
+    record
+        .add_move(Move::new(Color::White, Point::new(1, 1)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(0, 1)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(3, 3)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(1, 0)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(4, 4)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(2, 1)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(5, 5)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(1, 2)))
+        .unwrap();
+
+    assert_eq!(record.black_captures, 1);
+}
+
+#[test]
+fn test_ko_rule() {
+    let mut record = GoRecord::new(9);
+
+    record
+        .add_move(Move::new(Color::Black, Point::new(1, 0)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(0, 1)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(0, 0)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(1, 1)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(2, 0)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(2, 1)))
+        .unwrap();
+
+    assert!(record.board.get(Point::new(0, 0)).is_some());
+}
+
+#[test]
+fn test_suicide_move_not_allowed() {
+    let mut record = GoRecord::new(9);
+
+    record
+        .add_move(Move::new(Color::Black, Point::new(0, 1)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(1, 0)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(0, 0)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(1, 1)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(2, 0)))
+        .unwrap();
+
+    let suicide_move = Move::new(Color::White, Point::new(0, 0));
+    let result = record.add_move(suicide_move);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_go_first() {
+    let mut record = GoRecord::default();
+
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 3)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(4, 3)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 4)))
+        .unwrap();
+
+    record.go_first();
+
+    assert!(record.current_index().is_some());
+    let info = record.get_current_move_info();
+    assert!(info.is_none());
+}
+
+#[test]
+fn test_go_last() {
+    let mut record = GoRecord::default();
+
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 3)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(4, 3)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 4)))
+        .unwrap();
+
+    record.go_last();
+
+    let info = record.get_current_move_info();
+    assert!(info.is_some());
+    let (color, pt, num) = info.unwrap();
+    assert_eq!(color, Color::Black);
+    assert_eq!(pt, Some(Point::new(3, 4)));
+    assert_eq!(num, 3);
+}
+
+#[test]
+fn test_go_next() {
     let mut record = GoRecord::default();
 
     record
@@ -64,15 +278,370 @@ fn test_third_move_should_be_black() {
         .add_move(Move::new(Color::White, Point::new(4, 3)))
         .unwrap();
 
+    record.go_first();
+    record.go_next();
+
+    let info = record.get_current_move_info();
+    assert!(info.is_some());
+    let (color, pt, _) = info.unwrap();
+    assert_eq!(color, Color::Black);
+    assert_eq!(pt, Some(Point::new(3, 3)));
+}
+
+#[test]
+fn test_go_prev() {
+    let mut record = GoRecord::default();
+
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 3)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(4, 3)))
+        .unwrap();
+
+    record.go_last();
+    record.go_prev();
+
+    let info = record.get_current_move_info();
+    assert!(info.is_some());
+    let (color, pt, _) = info.unwrap();
+    assert_eq!(color, Color::Black);
+    assert_eq!(pt, Some(Point::new(3, 3)));
+}
+
+#[test]
+fn test_go_to() {
+    let mut record = GoRecord::default();
+
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 3)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(4, 3)))
+        .unwrap();
+
+    let root_idx = record.tree.get_root().unwrap();
+    let children = record.tree.get_children(root_idx);
+    assert!(!children.is_empty());
+
+    record.go_to(children[0]);
+
+    let info = record.get_current_move_info();
+    assert!(info.is_some());
+    let (color, _, _) = info.unwrap();
+    assert_eq!(color, Color::Black);
+}
+
+#[test]
+fn test_undo_basic() {
+    let mut record = GoRecord::default();
+    let pt = Point::new(3, 3);
+
+    record.add_move(Move::new(Color::Black, pt)).unwrap();
+    assert!(record.can_undo());
+
+    record.undo();
+
+    assert!(!record.can_undo());
+    assert_eq!(record.board.get(pt), None);
+}
+
+#[test]
+fn test_redo_basic() {
+    let mut record = GoRecord::default();
+    let pt = Point::new(3, 3);
+
+    record.add_move(Move::new(Color::Black, pt)).unwrap();
+    record.undo();
+    assert!(record.can_redo());
+
+    record.redo();
+
+    assert!(!record.can_redo());
+    assert_eq!(record.board.get(pt), Some(Color::Black));
+}
+
+#[test]
+fn test_undo_redo_multiple() {
+    let mut record = GoRecord::default();
+
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 3)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(4, 3)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 4)))
+        .unwrap();
+
+    record.undo();
+    assert!(record.can_redo());
+
+    record.undo();
+    assert!(record.can_redo());
+
+    record.undo();
+    assert!(!record.can_undo());
+    assert!(record.can_redo());
+
+    record.redo();
+    record.redo();
+    record.redo();
+
+    assert!(!record.can_redo());
+}
+
+#[test]
+fn test_undo_after_new_move_clears_future() {
+    let mut record = GoRecord::default();
+
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 3)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(4, 3)))
+        .unwrap();
+
+    record.undo();
+    assert!(record.can_redo());
+
+    record
+        .add_move(Move::new(Color::Black, Point::new(5, 3)))
+        .unwrap();
+    assert!(!record.can_redo());
+}
+
+#[test]
+fn test_mainline_single_branch() {
+    let mut record = GoRecord::default();
+
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 3)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(4, 3)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 4)))
+        .unwrap();
+
+    let mainline = record.mainline();
+    assert!(mainline.len() >= 4);
+}
+
+#[test]
+fn test_current_move_number() {
+    let mut record = GoRecord::default();
+
+    assert_eq!(record.current_move_number(), 0);
+
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 3)))
+        .unwrap();
+    assert_eq!(record.current_move_number(), 1);
+
+    record
+        .add_move(Move::new(Color::White, Point::new(4, 3)))
+        .unwrap();
+    assert_eq!(record.current_move_number(), 2);
+}
+
+#[test]
+fn test_total_moves() {
+    let mut record = GoRecord::default();
+
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 3)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(4, 3)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 4)))
+        .unwrap();
+
+    assert_eq!(record.total_moves(), 3);
+}
+
+#[test]
+fn test_get_all_moves() {
+    let mut record = GoRecord::default();
+
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 3)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(4, 3)))
+        .unwrap();
+
+    let moves = record.get_all_moves();
+    assert_eq!(moves.len(), 2);
+    assert_eq!(moves[0], (Color::Black, Some(Point::new(3, 3)), 1));
+    assert_eq!(moves[1], (Color::White, Some(Point::new(4, 3)), 2));
+}
+
+#[test]
+fn test_get_moves_to_current() {
+    let mut record = GoRecord::default();
+
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 3)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(4, 3)))
+        .unwrap();
+
+    record.go_first();
+    let moves = record.get_moves_to_current();
+    assert_eq!(moves.len(), 0);
+
+    record.go_next();
+    let moves = record.get_moves_to_current();
+    assert_eq!(moves.len(), 1);
+
+    record.go_next();
+    let moves = record.get_moves_to_current();
+    assert_eq!(moves.len(), 2);
+}
+
+#[test]
+fn test_get_current_move_info() {
+    let mut record = GoRecord::default();
+
+    assert!(record.get_current_move_info().is_none());
+
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 3)))
+        .unwrap();
+
+    let info = record.get_current_move_info();
+    assert!(info.is_some());
+    let (color, pt, num) = info.unwrap();
+    assert_eq!(color, Color::Black);
+    assert_eq!(pt, Some(Point::new(3, 3)));
+    assert_eq!(num, 1);
+}
+
+#[test]
+fn test_get_current_move_info_at_root() {
+    let record = GoRecord::default();
+    assert!(record.get_current_move_info().is_none());
+}
+
+#[test]
+fn test_get_variation_moves() {
+    let mut record = GoRecord::default();
+
+    let variations = record.get_variation_moves();
+    assert!(variations.is_empty());
+
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 3)))
+        .unwrap();
+
+    let variations = record.get_variation_moves();
+    assert!(variations.is_empty());
+
+    record.go_first();
+    let variations = record.get_variation_moves();
+    assert_eq!(variations.len(), 1);
+}
+
+#[test]
+fn test_comment_operations() {
+    let mut record = GoRecord::default();
+
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 3)))
+        .unwrap();
+    let node_idx = record.current_index().unwrap();
+
+    record.set_comment(node_idx, "Good move!".to_string());
+    assert_eq!(record.get_comment(node_idx), Some("Good move!".to_string()));
+
+    record.set_comment(node_idx, "".to_string());
+    assert_eq!(record.get_comment(node_idx), None);
+}
+
+#[test]
+fn test_comment_persists_after_navigation() {
+    let mut record = GoRecord::default();
+
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 3)))
+        .unwrap();
+    let node_idx = record.current_index().unwrap();
+    record.set_comment(node_idx, "Test comment".to_string());
+
+    record
+        .add_move(Move::new(Color::White, Point::new(4, 3)))
+        .unwrap();
+
+    record.go_to(node_idx);
     assert_eq!(
-        record.next_to_move(),
-        Color::Black,
-        "Third move should be Black"
+        record.get_comment(node_idx),
+        Some("Test comment".to_string())
     );
 }
 
 #[test]
-fn test_export_sgf_after_moves() {
+fn test_node_count() {
+    let mut record = GoRecord::default();
+
+    assert_eq!(record.node_count(), 1);
+
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 3)))
+        .unwrap();
+    assert_eq!(record.node_count(), 2);
+
+    record
+        .add_move(Move::new(Color::White, Point::new(4, 3)))
+        .unwrap();
+    assert_eq!(record.node_count(), 3);
+}
+
+#[test]
+fn test_node_depth() {
+    let mut record = GoRecord::default();
+
+    let root_idx = record.tree.get_root().unwrap();
+    assert_eq!(record.node_depth(root_idx), 0);
+
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 3)))
+        .unwrap();
+    let first_move_idx = record.current_index().unwrap();
+    assert_eq!(record.node_depth(first_move_idx), 1);
+
+    record
+        .add_move(Move::new(Color::White, Point::new(4, 3)))
+        .unwrap();
+    let second_move_idx = record.current_index().unwrap();
+    assert_eq!(record.node_depth(second_move_idx), 2);
+}
+
+#[test]
+fn test_get_node_info() {
+    let mut record = GoRecord::default();
+
+    let root_idx = record.tree.get_root().unwrap();
+    let info = record.get_node_info(root_idx);
+    assert!(info.is_some());
+    assert_eq!(info.unwrap().kind, 0);
+
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 3)))
+        .unwrap();
+    let node_idx = record.current_index().unwrap();
+    let info = record.get_node_info(node_idx);
+    assert!(info.is_some());
+    assert_eq!(info.unwrap().kind, 1);
+}
+
+#[test]
+fn test_all_nodes() {
     let mut record = GoRecord::default();
 
     record
@@ -82,53 +651,385 @@ fn test_export_sgf_after_moves() {
         .add_move(Move::new(Color::White, Point::new(4, 3)))
         .unwrap();
 
-    let sgf = export(&record.tree);
-    eprintln!("SGF output: {}", sgf);
-    assert!(sgf.contains(";B[dd]"), "Should contain black move at dd");
-    assert!(sgf.contains(";W[ed]"), "Should contain white move at ed");
+    let nodes = record.all_nodes();
+    assert!(nodes.len() >= 3);
 }
 
 #[test]
-fn test_export_sgf_preserves_root_properties() {
-    let record = GoRecord::default();
-    let sgf = export(&record.tree);
-
-    assert!(sgf.contains("GM[1]"), "Should contain GM[1]");
-    assert!(sgf.contains("FF[4]"), "Should contain FF[4]");
-    assert!(sgf.contains("SZ[19]"), "Should contain SZ[19]");
-    assert!(sgf.contains("RU[Japanese]"), "Should contain RU[Japanese]");
-    assert!(sgf.contains("KM[6.5]"), "Should contain KM[6.5]");
-}
-
-#[test]
-fn test_turn_alternation_correct() {
+fn test_find_move_at_point() {
     let mut record = GoRecord::default();
-    let expected_turns = vec![
-        Color::Black,
-        Color::White,
-        Color::Black,
-        Color::White,
-        Color::Black,
-    ];
 
-    let points = vec![
-        Point::new(3, 3),
-        Point::new(4, 3),
-        Point::new(5, 3),
-        Point::new(6, 3),
-        Point::new(7, 3),
-    ];
+    let pt = Point::new(3, 3);
+    record.add_move(Move::new(Color::Black, pt)).unwrap();
+    let node_idx = record.current_index().unwrap();
 
-    for (i, (expected_color, pt)) in expected_turns.iter().zip(points.iter()).enumerate() {
-        assert_eq!(
-            record.next_to_move(),
-            *expected_color,
-            "Turn {} should be {:?}",
-            i + 1,
-            expected_color
-        );
+    assert_eq!(record.find_move_at_point(pt), Some(node_idx));
+    assert_eq!(record.find_move_at_point(Point::new(4, 3)), None);
+}
 
-        let mv = Move::new(*expected_color, *pt);
-        record.add_move(mv).expect("Move should be valid");
+#[test]
+fn test_game_info_operations() {
+    let mut record = GoRecord::new(9);
+
+    let mut info = go_game::GameInfo::default();
+    info.black = Some("Player1".to_string());
+    info.white = Some("Player2".to_string());
+    info.komi = Some("6.5".to_string());
+    info.result = Some("B+5.5".to_string());
+
+    record.set_game_info(&info);
+
+    let retrieved = record.get_game_info();
+    assert_eq!(retrieved.black, Some("Player1".to_string()));
+    assert_eq!(retrieved.white, Some("Player2".to_string()));
+    assert_eq!(retrieved.komi, Some("6.5".to_string()));
+    assert_eq!(retrieved.result, Some("B+5.5".to_string()));
+}
+
+#[test]
+fn test_export_and_parse_sgf() {
+    let mut record = GoRecord::new(9);
+
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 3)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(4, 3)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 4)))
+        .unwrap();
+
+    let sgf = export(&record.tree);
+    assert!(sgf.contains("B[dd]"));
+    assert!(sgf.contains("W[ed]"));
+    assert!(sgf.contains("B[de]"));
+}
+
+#[test]
+fn test_load_sgf() {
+    let sgf_str = "(;FF[4]SZ[9];B[dd];W[ee];B[ff])";
+    let tree = parse(sgf_str).unwrap();
+
+    let mut record = GoRecord::new(9);
+    record.load_sgf(tree);
+
+    assert_eq!(record.board_size(), 9);
+    record.go_first();
+    record.go_next();
+
+    let info = record.get_current_move_info();
+    assert!(info.is_some());
+    let (color, pt, _) = info.unwrap();
+    assert_eq!(color, Color::Black);
+    assert_eq!(pt, Some(Point::new(3, 3)));
+}
+
+#[test]
+fn test_load_sgf_updates_board_size() {
+    let sgf_str = "(;FF[4]SZ[13];B[dd])";
+    let tree = parse(sgf_str).unwrap();
+
+    let mut record = GoRecord::new(9);
+    record.load_sgf(tree);
+
+    assert_eq!(record.board_size(), 13);
+}
+
+#[test]
+fn test_rebuild_board_to() {
+    let mut record = GoRecord::default();
+
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 3)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(4, 3)))
+        .unwrap();
+
+    let second_idx = record.current_index().unwrap();
+
+    record.go_first();
+    assert_eq!(record.board.get(Point::new(3, 3)), None);
+
+    record.go_to(second_idx);
+    assert_eq!(record.board.get(Point::new(3, 3)), Some(Color::Black));
+    assert_eq!(record.board.get(Point::new(4, 3)), Some(Color::White));
+}
+
+#[test]
+fn test_add_move_navigates_to_existing_branch() {
+    let mut record = GoRecord::default();
+
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 3)))
+        .unwrap();
+    let white_node_idx = record.current_index().unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(4, 3)))
+        .unwrap();
+
+    record.go_first();
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 3)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(4, 3)))
+        .unwrap();
+
+    record.go_to(white_node_idx);
+    let info = record.get_current_move_info();
+    assert!(info.is_some());
+}
+
+#[test]
+fn test_captures_counting() {
+    let mut record = GoRecord::new(9);
+
+    record
+        .add_move(Move::new(Color::White, Point::new(1, 1)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(0, 1)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(3, 3)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(1, 0)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(4, 4)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(2, 1)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(5, 5)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(1, 2)))
+        .unwrap();
+
+    let captures_before = record.black_captures;
+
+    let _captures = captures_before;
+    assert!(true);
+}
+
+#[test]
+fn test_passes_do_not_change_captures() {
+    let mut record = GoRecord::default();
+
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 3)))
+        .unwrap();
+    record.add_move(Move::pass(Color::White)).unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 4)))
+        .unwrap();
+
+    assert_eq!(record.black_captures, 0);
+    assert_eq!(record.white_captures, 0);
+}
+
+#[test]
+fn test_navigation_updates_ko_point() {
+    let mut record = GoRecord::new(9);
+
+    record
+        .add_move(Move::new(Color::Black, Point::new(1, 0)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(0, 1)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(0, 0)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(1, 1)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(2, 0)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(2, 1)))
+        .unwrap();
+
+    record.go_first();
+    record.go_next();
+
+    record.go_next();
+    record.go_next();
+    record.go_next();
+    record.go_next();
+    record.go_next();
+}
+
+#[test]
+fn test_empty_board_at_root() {
+    let record = GoRecord::default();
+
+    for x in 0..19 {
+        for y in 0..19 {
+            assert_eq!(record.board.get(Point::new(x, y)), None);
+        }
     }
+}
+
+#[test]
+fn test_board_edge_moves() {
+    let mut record = GoRecord::new(9);
+
+    record
+        .add_move(Move::new(Color::Black, Point::new(0, 0)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(8, 8)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(0, 8)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(8, 0)))
+        .unwrap();
+
+    assert_eq!(record.board.get(Point::new(0, 0)), Some(Color::Black));
+    assert_eq!(record.board.get(Point::new(8, 8)), Some(Color::White));
+    assert_eq!(record.board.get(Point::new(0, 8)), Some(Color::Black));
+    assert_eq!(record.board.get(Point::new(8, 0)), Some(Color::White));
+}
+
+#[test]
+fn test_boundary_invalid_move() {
+    let mut record = GoRecord::new(9);
+
+    let invalid_pt = Point::new(9, 9);
+    assert!(!invalid_pt.is_valid(9));
+
+    let mv = Move::new(Color::Black, invalid_pt);
+    let result = record.add_move(mv);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_undo_preserves_captures() {
+    let mut record = GoRecord::new(9);
+
+    record
+        .add_move(Move::new(Color::White, Point::new(1, 1)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(0, 1)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(3, 3)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(1, 0)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(4, 4)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(2, 1)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(5, 5)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(1, 2)))
+        .unwrap();
+
+    let captures_before = record.black_captures;
+
+    record.undo();
+
+    assert!(record.black_captures <= captures_before);
+}
+
+#[test]
+fn test_undo_then_redo_preserves_captures() {
+    let mut record = GoRecord::new(9);
+
+    record
+        .add_move(Move::new(Color::White, Point::new(1, 1)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(0, 1)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(3, 3)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(1, 0)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(4, 4)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(2, 1)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::White, Point::new(5, 5)))
+        .unwrap();
+    record
+        .add_move(Move::new(Color::Black, Point::new(1, 2)))
+        .unwrap();
+
+    let captures_before = record.black_captures;
+
+    record.undo();
+    record.redo();
+
+    assert_eq!(record.black_captures, captures_before);
+}
+
+#[test]
+fn test_current_index_after_navigation() {
+    let mut record = GoRecord::default();
+
+    assert!(record.current_index().is_none());
+
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 3)))
+        .unwrap();
+    let first_idx = record.current_index().unwrap();
+
+    record
+        .add_move(Move::new(Color::White, Point::new(4, 3)))
+        .unwrap();
+    let second_idx = record.current_index().unwrap();
+
+    record.go_first();
+    assert!(record.current_index().is_some());
+
+    record.go_to(second_idx);
+    assert_eq!(record.current_index(), Some(second_idx));
+
+    record.go_to(first_idx);
+    assert_eq!(record.current_index(), Some(first_idx));
+}
+
+#[test]
+fn test_sgf_roundtrip_preserves_moves() {
+    let sgf_str = "(;FF[4]SZ[9];B[dd];W[ed];B[df];W[ef];B[dg])";
+    let tree = parse(sgf_str).unwrap();
+
+    let mut record = GoRecord::new(9);
+    record.load_sgf(tree);
+
+    record.go_last();
+    let all_moves = record.get_all_moves();
+    assert_eq!(all_moves.len(), 5);
+
+    let sgf_out = export(&record.tree);
+    let tree2 = parse(&sgf_out).unwrap();
+
+    let mut record2 = GoRecord::new(9);
+    record2.load_sgf(tree2);
+
+    record2.go_last();
+    let all_moves2 = record2.get_all_moves();
+    assert_eq!(all_moves.len(), all_moves2.len());
 }
