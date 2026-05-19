@@ -463,6 +463,7 @@ impl GoGui {
                 let base_panel_w = (win_w * 0.28).clamp(200.0, 420.0);
                 let coef = (win_w / 1200.0).clamp(0.6, 1.2);
                 let tree_w = (base_panel_w * coef).min(win_w * 0.6);
+
                 let gap = 8.0;
 
                 let board_area_w = (avail.width() - tree_w - gap).max(120.0);
@@ -558,6 +559,25 @@ impl GoGui {
                         .sense(Sense::click())
                         .max_rect(tree_rect),
                     |ui| {
+                        // // 评论面板
+                        if self.show_comment_panel {
+                            ui.label("Comment");
+                            ui.add(
+                                egui::TextEdit::multiline(&mut self.comment_edit).desired_rows(4),
+                            );
+                            ui.horizontal(|ui| {
+                                if ui.button("Save").clicked() {
+                                    if let Some(i) = self.record.current_index() {
+                                        self.record.set_comment(i, self.comment_edit.clone());
+                                    }
+                                }
+                                if ui.button("Clear").clicked() {
+                                    self.comment_edit.clear();
+                                }
+                            });
+                            ui.separator();
+                        }
+
                         ui.label("Game Tree");
 
                         // tree_panel绘制
@@ -613,7 +633,7 @@ impl GoGui {
                         egui::ScrollArea::both().show_viewport(ui, |ui, _viewport| {
                             // 限制最小宽度为 canvas_w，但不会超出子面板宽度
                             ui.set_min_width(canvas_w.min(tree_w - 8.0));
-
+                            //ui.set_max_height(self.board_rect.height()*0.5);
                             ui.allocate_space(Vec2::new(canvas_w, canvas_h));
                             let origin = ui.min_rect().min;
                             let painter = ui.painter();
@@ -742,27 +762,7 @@ impl GoGui {
                                     );
                                 }
                             }
-
-                            // 评论面板
-                            if self.show_comment_panel {
-                                ui.separator();
-                                ui.label("Comment");
-                                ui.add(
-                                    egui::TextEdit::multiline(&mut self.comment_edit)
-                                        .desired_rows(4),
-                                );
-                                ui.horizontal(|ui| {
-                                    if ui.button("Save").clicked() {
-                                        if let Some(i) = self.record.current_index() {
-                                            self.record.set_comment(i, self.comment_edit.clone());
-                                        }
-                                    }
-                                    if ui.button("Clear").clicked() {
-                                        self.comment_edit.clear();
-                                    }
-                                });
-                            }
-                        });
+                        }); //scroll
                     },
                 );
             } else {
@@ -1409,7 +1409,7 @@ fn draw_board(
     painter.rect_filled(rect, 0.0, Color32::from_rgb(230, 190, 120));
 
     // 计算棋盘内边距和绘制区域
-    let pad = (rect.width() * 0.03).clamp(2.0, 20.0);
+    let pad = (rect.width() * 0.05).clamp(5.0, 40.0);
     let inner_rect = rect.shrink(2.0);
     let drawing_rect = egui::Rect::from_min_max(
         inner_rect.min + egui::vec2(pad, pad),
