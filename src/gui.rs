@@ -139,6 +139,8 @@ pub struct GoGui {
     scroll_accumulator: f32,
     /// 棋盘区域矩形（用于判断鼠标是否在棋盘内）
     board_rect: egui::Rect,
+    /// 需要滚动到的高亮节点索引（用于前进/后退后自动滚动）
+    scroll_to_node: Option<usize>,
 }
 
 impl GoGui {
@@ -186,6 +188,7 @@ impl GoGui {
             new_game_komi_edited: false,
             scroll_accumulator: 0.0,
             board_rect: egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(0.0, 0.0)),
+            scroll_to_node: None,
         }
     }
 
@@ -207,18 +210,22 @@ impl eframe::App for GoGui {
             // 键盘快捷键处理
             if input.key_pressed(egui::Key::ArrowLeft) {
                 self.record.go_prev();
+                self.scroll_to_node = self.record.current_index();
                 self.sync_comment_edit();
             }
             if input.key_pressed(egui::Key::ArrowRight) {
                 self.record.go_next();
+                self.scroll_to_node = self.record.current_index();
                 self.sync_comment_edit();
             }
             if input.key_pressed(egui::Key::Home) {
                 self.record.go_first();
+                self.scroll_to_node = self.record.current_index();
                 self.sync_comment_edit();
             }
             if input.key_pressed(egui::Key::End) {
                 self.record.go_last();
+                self.scroll_to_node = self.record.current_index();
                 self.sync_comment_edit();
             }
             // Ctrl+Z 撤销，Ctrl+Shift+Z 重做
@@ -228,6 +235,7 @@ impl eframe::App for GoGui {
                 } else {
                     self.record.undo();
                 }
+                self.scroll_to_node = self.record.current_index();
                 self.sync_comment_edit();
             }
 
@@ -238,10 +246,12 @@ impl eframe::App for GoGui {
                     self.scroll_accumulator += input.smooth_scroll_delta.y;
                     if self.scroll_accumulator >= 36.0 {
                         self.record.go_next();
+                        self.scroll_to_node = self.record.current_index();
                         self.scroll_accumulator = 0.0;
                         self.sync_comment_edit();
                     } else if self.scroll_accumulator <= -36.0 {
                         self.record.go_prev();
+                        self.scroll_to_node = self.record.current_index();
                         self.scroll_accumulator = 0.0;
                         self.sync_comment_edit();
                     }
@@ -276,18 +286,22 @@ impl GoGui {
             ui.horizontal(|ui| {
                 if ui.button("|<").clicked() {
                     self.record.go_first();
+                    self.scroll_to_node = self.record.current_index();
                     self.sync_comment_edit();
                 }
                 if ui.button("<").clicked() {
                     self.record.go_prev();
+                    self.scroll_to_node = self.record.current_index();
                     self.sync_comment_edit();
                 }
                 if ui.button(">").clicked() {
                     self.record.go_next();
+                    self.scroll_to_node = self.record.current_index();
                     self.sync_comment_edit();
                 }
                 if ui.button(">|").clicked() {
                     self.record.go_last();
+                    self.scroll_to_node = self.record.current_index();
                     self.sync_comment_edit();
                 }
                 ui.label(format!(
@@ -593,6 +607,9 @@ impl GoGui {
                         let canvas_w = (max_col as f32 + 1.0) * col_w + 20.0;
                         let canvas_h = (max_depth as f32 + 2.0) * row_h + 20.0;
 
+                        let scroll_to_node = self.scroll_to_node;
+                        self.scroll_to_node = None;
+
                         egui::ScrollArea::both().show_viewport(ui, |ui, _viewport| {
                             // 限制最小宽度为 canvas_w，但不会超出子面板宽度
                             ui.set_min_width(canvas_w.min(tree_w - 8.0));
@@ -622,6 +639,13 @@ impl GoGui {
                                 );
                                 pos_map.insert(*idx, node_rect.center());
                                 rect_map.insert(*idx, node_rect);
+                            }
+
+                            // 自动滚动到目标节点
+                            if let Some(target_idx) = scroll_to_node {
+                                if let Some(target_rect) = rect_map.get(&target_idx) {
+                                    ui.scroll_to_rect(*target_rect, Some(egui::Align::Center));
+                                }
                             }
 
                             // 绘制连线（使用折线连接父子节点）
@@ -1145,7 +1169,6 @@ impl GoGui {
         }
 
         let node_idx = self.context_node;
-        let close_flag = self.show_context_window;
 
         egui::Window::new("📋 Move Options")
             .default_pos(self.context_pos)
@@ -1190,26 +1213,6 @@ impl GoGui {
                 });
                 ui.add_space(SPACING);
             });
-
-        if close_flag && self.show_context_window {
-            let overlay_response = egui::Area::new(egui::Id::new("context_overlay_area"))
-                .order(egui::Order::Background)
-                .show(ctx, |ui| {
-                    let available = ui.available_rect_before_wrap();
-                    ui.allocate_rect(available, Sense::hover());
-                    ui.painter().rect_filled(
-                        available,
-                        0.0,
-                        Color32::from_rgba_unmultiplied(0, 0, 0, 30),
-                    );
-                })
-                .response;
-            if overlay_response.clicked() {
-                self.context_node = None;
-                self.context_point = None;
-                self.show_context_window = false;
-            }
-        }
     }
 
     /// 新建游戏对话框
