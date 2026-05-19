@@ -1,11 +1,9 @@
-use chardetng::{self, Iso2022JpDetection};
 use eframe::egui;
 use egui::{Color32, Layout, Sense, Stroke, Vec2};
 use std::collections::HashMap;
 
 use go_game::model::{Color, Move, Point};
-use go_game::record::{GoRecord, NodeInfo, default_komi};
-use go_game::sgf::{export, parse};
+use go_game::record::{FileError, GoRecord, NodeInfo, default_komi};
 use go_game::{Board, IllegalMoveError};
 
 const BUTTON_HEIGHT: f32 = 32.0;
@@ -127,6 +125,8 @@ pub struct GoGui {
     board_rect: egui::Rect,
     /// 需要滚动到的高亮节点索引（用于前进/后退后自动滚动）
     scroll_to_node: Option<usize>,
+    /// 当前文件路径（用于 Save 操作）
+    current_file_path: Option<std::path::PathBuf>,
 }
 
 impl GoGui {
@@ -175,6 +175,7 @@ impl GoGui {
             scroll_accumulator: 0.0,
             board_rect: egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(0.0, 0.0)),
             scroll_to_node: None,
+            current_file_path: None,
         }
     }
 
@@ -305,58 +306,77 @@ impl GoGui {
             // 新建游戏
             if ui.button("New").clicked() {
                 self.show_new_game_dialog = true;
+                self.current_file_path = None;
                 ui.close();
             }
             // 打开 SGF 文件
             if ui.button("Open SGF").clicked() {
-                if let Some(path) = rfd::FileDialog::new().pick_file() {
-                    match std::fs::read(&path) {
-                        Ok(bytes) => {
-                            let content = if bytes.is_empty() {
-                                String::new()
-                            } else {
-                                decode_sgf_content(&bytes)
-                            };
-
-                            match parse(&content) {
-                                Ok(tree) => {
-                                    self.record.load_sgf(tree);
-                                    self.sync_comment_edit();
-                                    // 加载游戏信息
-                                    let info = self.record.get_game_info();
-                                    self.info_game_name = info.game_name.unwrap_or_default();
-                                    self.info_black = info.black.unwrap_or_default();
-                                    self.info_black_rank = info.black_rank.unwrap_or_default();
-                                    self.info_white = info.white.unwrap_or_default();
-                                    self.info_white_rank = info.white_rank.unwrap_or_default();
-                                    self.info_event = info.event.unwrap_or_default();
-                                    self.info_round = info.round.unwrap_or_default();
-                                    self.info_place = info.place.unwrap_or_default();
-                                    self.info_date = info.date.unwrap_or_default();
-                                    self.info_komi = info.komi.clone().unwrap_or_default();
-                                    self.info_result = info.result.unwrap_or_default();
-                                    self.info_rules = info.rules.clone().unwrap_or_default();
-                                    self.info_handicap = info.handicap.unwrap_or_default();
-                                    self.info_black_team = info.black_team.unwrap_or_default();
-                                    self.info_white_team = info.white_team.unwrap_or_default();
-                                    self.info_user = info.user.unwrap_or_default();
-                                    // 同步到新建对话框
-                                    if let Some(ref rules) = info.rules {
-                                        self.new_game_rules = rules.clone();
-                                    }
-                                    if let Some(ref komi) = info.komi {
-                                        self.new_game_komi = komi.clone();
-                                    }
-                                }
-                                Err(e) => {
-                                    self.show_error_window = true;
-                                    self.error_message = format!("SGF parse error: {}", e);
-                                }
+                if let Some(path) = rfd::FileDialog::new()
+                    .add_filter("sgf file", &["sgf"])
+                    .pick_file()
+                {
+                    match self.record.load_from_file(&path) {
+                        Ok(()) => {
+                            self.sync_comment_edit();
+                            self.current_file_path = Some(path);
+                            // 加载游戏信息
+                            let info = self.record.get_game_info();
+                            self.info_game_name = info.game_name.unwrap_or_default();
+                            self.info_black = info.black.unwrap_or_default();
+                            self.info_black_rank = info.black_rank.unwrap_or_default();
+                            self.info_white = info.white.unwrap_or_default();
+                            self.info_white_rank = info.white_rank.unwrap_or_default();
+                            self.info_event = info.event.unwrap_or_default();
+                            self.info_round = info.round.unwrap_or_default();
+                            self.info_place = info.place.unwrap_or_default();
+                            self.info_date = info.date.unwrap_or_default();
+                            self.info_komi = info.komi.clone().unwrap_or_default();
+                            self.info_result = info.result.unwrap_or_default();
+                            self.info_rules = info.rules.clone().unwrap_or_default();
+                            self.info_handicap = info.handicap.unwrap_or_default();
+                            self.info_black_team = info.black_team.unwrap_or_default();
+                            self.info_white_team = info.white_team.unwrap_or_default();
+                            self.info_user = info.user.unwrap_or_default();
+                            // 同步到新建对话框
+                            if let Some(ref rules) = info.rules {
+                                self.new_game_rules = rules.clone();
+                            }
+                            if let Some(ref komi) = info.komi {
+                                self.new_game_komi = komi.clone();
                             }
                         }
                         Err(e) => {
                             self.show_error_window = true;
-                            self.error_message = format!("Failed to read file: {}", e);
+                            self.error_message = match e {
+                                FileError::Io(err) => {
+                                    format!("Failed to read file: {}", err)
+                                }
+                                FileError::Parse(err) => {
+                                    format!("SGF parse error: {}", err)
+                                }
+                            };
+                        }
+                    }
+                }
+                ui.close();
+            }
+            // 保存
+            if ui.button("Save").clicked() {
+                if let Some(ref path) = self.current_file_path {
+                    if let Err(e) = self.record.save_to_file(path) {
+                        self.show_error_window = true;
+                        self.error_message = format!("Failed to save file: {}", e);
+                    }
+                } else {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .add_filter("sgf file", &["sgf"])
+                        .save_file()
+                    {
+                        if let Err(e) = self.record.save_to_file(&path) {
+                            self.show_error_window = true;
+                            self.error_message = format!("Failed to save file: {}", e);
+                        } else {
+                            self.current_file_path = Some(path);
                         }
                     }
                 }
@@ -368,8 +388,12 @@ impl GoGui {
                     .add_filter("sgf file", &["sgf"])
                     .save_file()
                 {
-                    let s = export(&self.record.tree);
-                    let _ = std::fs::write(path, s);
+                    if let Err(e) = self.record.save_to_file(&path) {
+                        self.show_error_window = true;
+                        self.error_message = format!("Failed to save file: {}", e);
+                    } else {
+                        self.current_file_path = Some(path);
+                    }
                 }
                 ui.close();
             }
@@ -1295,68 +1319,6 @@ impl GoGui {
             self.show_new_game_dialog = false;
         }
     }
-}
-
-/// 解码 SGF 文件内容
-/// 支持多种字符编码：UTF-8、UTF-16（LE/BE）、GBK、GB18030、BIG5、Shift-JIS、EUC-JP、EUC-KR
-fn decode_sgf_content(bytes: &[u8]) -> String {
-    // 检查 UTF-16 BOM
-    if bytes.starts_with(&[0xFF, 0xFE]) {
-        let (decoded, _, had_errors) = encoding_rs::UTF_16LE.decode(bytes);
-        if !had_errors {
-            return decoded.into_owned();
-        }
-    } else if bytes.starts_with(&[0xFE, 0xFF]) {
-        let (decoded, _, had_errors) = encoding_rs::UTF_16BE.decode(bytes);
-        if !had_errors {
-            return decoded.into_owned();
-        }
-    }
-
-    // 使用 chardetng 检测编码
-    let mut detector = chardetng::EncodingDetector::new(Iso2022JpDetection::Allow);
-    detector.feed(bytes, true);
-    let detected_encoding = detector.guess(None, chardetng::Utf8Detection::Allow);
-
-    let (result, had_errors) = detected_encoding.decode_with_bom_removal(bytes);
-
-    if !had_errors {
-        let result_str = result.to_string();
-        // 检查是否包含非法控制字符（换行、回车、制表符除外）
-        if !result_str
-            .chars()
-            .any(|c: char| c.is_control() && c != '\n' && c != '\r' && c != '\t')
-        {
-            return result_str;
-        }
-    }
-
-    // 尝试常见的中文和日文编码
-    let encodings_priority = [
-        (encoding_rs::GBK, "GBK"),
-        (encoding_rs::GB18030, "GB18030"),
-        (encoding_rs::BIG5, "BIG5"),
-        (encoding_rs::SHIFT_JIS, "SHIFT_JIS"),
-        (encoding_rs::EUC_JP, "EUC-JP"),
-        (encoding_rs::EUC_KR, "EUC-KR"),
-        (encoding_rs::UTF_8, "UTF-8"),
-    ];
-
-    for (encoding, _name) in encodings_priority {
-        let (decoded, _, had_errors) = encoding.decode(bytes);
-        if !had_errors {
-            let s = decoded.to_string();
-            if !s
-                .chars()
-                .any(|c: char| c.is_control() && c != '\n' && c != '\r' && c != '\t')
-            {
-                return s;
-            }
-        }
-    }
-
-    // 最后手段：使用 UTF-8 损失性转换
-    String::from_utf8_lossy(bytes).to_string()
 }
 
 /// 在 UI 上绘制棋盘

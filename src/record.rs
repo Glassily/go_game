@@ -1,9 +1,33 @@
 use std::collections::HashMap;
+use std::fs;
+use std::path::Path;
+
+use chardetng::EncodingDetector;
+use chardetng::Iso2022JpDetection;
 
 use crate::Node;
 use crate::board::{Board, IllegalMoveError};
 use crate::model::{Color, Move, Point};
-use crate::sgf::{GameTree, Property};
+use crate::sgf::{GameTree, ParseError, Property, export, parse};
+
+/// 文件加载错误类型
+#[derive(Debug)]
+pub enum FileError {
+    Io(std::io::Error),
+    Parse(ParseError),
+}
+
+impl From<std::io::Error> for FileError {
+    fn from(err: std::io::Error) -> Self {
+        FileError::Io(err)
+    }
+}
+
+impl From<ParseError> for FileError {
+    fn from(err: ParseError) -> Self {
+        FileError::Parse(err)
+    }
+}
 
 /// 围棋对局记录结构
 ///
@@ -666,6 +690,77 @@ impl GoRecord {
                 self.get_node_info(i).map(|info| (i, info))
             })
             .collect()
+    }
+
+    /// 从文件加载 SGF
+    pub fn load_from_file(&mut self, path: &Path) -> Result<(), FileError> {
+        let bytes = fs::read(path)?;
+        let content = Self::decode_sgf_content(&bytes);
+        let tree = parse(&content).map_err(FileError::Parse)?;
+        self.load_sgf(tree);
+        Ok(())
+    }
+
+    /// 保存到文件
+    pub fn save_to_file(&self, path: &Path) -> Result<(), std::io::Error> {
+        let s = export(&self.tree);
+        fs::write(path, s)
+    }
+
+    /// 解码 SGF 文件内容
+    fn decode_sgf_content(bytes: &[u8]) -> String {
+        if bytes.starts_with(&[0xFF, 0xFE]) {
+            let (decoded, _, had_errors) = encoding_rs::UTF_16LE.decode(bytes);
+            if !had_errors {
+                return decoded.into_owned();
+            }
+        } else if bytes.starts_with(&[0xFE, 0xFF]) {
+            let (decoded, _, had_errors) = encoding_rs::UTF_16BE.decode(bytes);
+            if !had_errors {
+                return decoded.into_owned();
+            }
+        }
+
+        let mut detector = EncodingDetector::new(Iso2022JpDetection::Allow);
+        detector.feed(bytes, true);
+        let detected_encoding = detector.guess(None, chardetng::Utf8Detection::Allow);
+
+        let (result, had_errors) = detected_encoding.decode_with_bom_removal(bytes);
+
+        if !had_errors {
+            let result_str = result.to_string();
+            if !result_str
+                .chars()
+                .any(|c: char| c.is_control() && c != '\n' && c != '\r' && c != '\t')
+            {
+                return result_str;
+            }
+        }
+
+        let encodings_priority = [
+            (encoding_rs::GBK, "GBK"),
+            (encoding_rs::GB18030, "GB18030"),
+            (encoding_rs::BIG5, "BIG5"),
+            (encoding_rs::SHIFT_JIS, "SHIFT_JIS"),
+            (encoding_rs::EUC_JP, "EUC-JP"),
+            (encoding_rs::EUC_KR, "EUC-KR"),
+            (encoding_rs::UTF_8, "UTF-8"),
+        ];
+
+        for (encoding, _) in encodings_priority {
+            let (decoded, _, had_errors) = encoding.decode(bytes);
+            if !had_errors {
+                let s = decoded.to_string();
+                if !s
+                    .chars()
+                    .any(|c: char| c.is_control() && c != '\n' && c != '\r' && c != '\t')
+                {
+                    return s;
+                }
+            }
+        }
+
+        String::from_utf8_lossy(bytes).to_string()
     }
 }
 
