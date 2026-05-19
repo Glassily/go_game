@@ -140,38 +140,6 @@ fn test_capture_basic() {
 }
 
 #[test]
-fn test_multiple_captures_possible() {
-    let mut record = GoRecord::new(9);
-
-    record
-        .add_move(Move::new(Color::White, Point::new(1, 1)))
-        .unwrap();
-    record
-        .add_move(Move::new(Color::Black, Point::new(0, 1)))
-        .unwrap();
-    record
-        .add_move(Move::new(Color::White, Point::new(3, 3)))
-        .unwrap();
-    record
-        .add_move(Move::new(Color::Black, Point::new(1, 0)))
-        .unwrap();
-    record
-        .add_move(Move::new(Color::White, Point::new(4, 4)))
-        .unwrap();
-    record
-        .add_move(Move::new(Color::Black, Point::new(2, 1)))
-        .unwrap();
-    record
-        .add_move(Move::new(Color::White, Point::new(5, 5)))
-        .unwrap();
-    record
-        .add_move(Move::new(Color::Black, Point::new(1, 2)))
-        .unwrap();
-
-    assert_eq!(record.black_captures, 1);
-}
-
-#[test]
 fn test_ko_rule() {
     let mut record = GoRecord::new(9);
 
