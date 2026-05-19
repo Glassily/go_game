@@ -921,7 +921,7 @@ impl GoGui {
             return;
         }
 
-        dialog_window("📋 Game Info")
+        dialog_window("Game Info")
             .resizable(true)
             .default_width(520.0)
             .show(ctx, |ui| {
@@ -1138,7 +1138,7 @@ impl GoGui {
             return;
         }
 
-        dialog_window("⚠ Error").resizable(false).show(ctx, |ui| {
+        dialog_window("Error").resizable(false).show(ctx, |ui| {
             ui.add_space(SPACING);
             ui.label(
                 egui::RichText::new(&self.error_message)
@@ -1161,7 +1161,7 @@ impl GoGui {
             return;
         }
 
-        dialog_window("⛔ Illegal Move")
+        dialog_window("Illegal Move")
             .resizable(false)
             .show(ui.ctx(), |ui| {
                 ui.add_space(SPACING);
@@ -1195,7 +1195,7 @@ impl GoGui {
 
         let node_idx = self.context_node;
 
-        egui::Window::new("📋 Move Options")
+        egui::Window::new("Move Options")
             .default_pos(self.context_pos)
             .show(ctx, |ui| {
                 ui.add_space(SPACING);
@@ -1248,7 +1248,7 @@ impl GoGui {
 
         let node_idx = self.tree_context_node;
 
-        egui::Window::new("🗑️ Tree Options")
+        egui::Window::new("Tree Options")
             .default_pos(self.tree_context_pos)
             .show(ctx, |ui| {
                 ui.add_space(SPACING);
@@ -1274,7 +1274,7 @@ impl GoGui {
                             }
                         }
                         if let Some(idx) = node_idx {
-                            if !self.record.is_root(idx) {
+                            if !self.record.is_root(idx) && self.edit_mode {
                                 if styled_button(ui, "Delete Subtree", true).clicked() {
                                     self.confirm_delete_node = Some(idx);
                                     self.show_delete_confirm = true;
@@ -1309,7 +1309,7 @@ impl GoGui {
 
         let mut close_dialog = false;
 
-        dialog_window("⚠️ Confirm Delete")
+        dialog_window("Confirm Delete")
             .resizable(false)
             .show(ctx, |ui| {
                 ui.add_space(SPACING);
@@ -1355,7 +1355,7 @@ impl GoGui {
 
         let mut close_dialog = false;
 
-        dialog_window("🎮 New Game")
+        dialog_window("New Game")
             .resizable(false)
             .show(ui.ctx(), |ui| {
                 ui.set_width(340.0);
