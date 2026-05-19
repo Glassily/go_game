@@ -137,6 +137,8 @@ pub struct GoGui {
     new_game_komi_edited: bool,
     /// 滚动计数器（用于滚轮每格走一步，每格约36度）
     scroll_accumulator: f32,
+    /// 棋盘区域矩形（用于判断鼠标是否在棋盘内）
+    board_rect: egui::Rect,
 }
 
 impl GoGui {
@@ -183,6 +185,7 @@ impl GoGui {
             new_game_komi: String::from("6.5"),
             new_game_komi_edited: false,
             scroll_accumulator: 0.0,
+            board_rect: egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(0.0, 0.0)),
         }
     }
 
@@ -229,15 +232,20 @@ impl eframe::App for GoGui {
             }
 
             // 鼠标滚轮沿主线下前进/后退（滚轮每格走一步，每格约36度）
-            self.scroll_accumulator += input.smooth_scroll_delta.y;
-            if self.scroll_accumulator >= 36.0 {
-                self.record.go_next();
-                self.scroll_accumulator = 0.0;
-                self.sync_comment_edit();
-            } else if self.scroll_accumulator <= -36.0 {
-                self.record.go_prev();
-                self.scroll_accumulator = 0.0;
-                self.sync_comment_edit();
+            // 只在鼠标位于棋盘区域内时响应滚轮
+            if let Some(hover_pos) = input.pointer.hover_pos() {
+                if self.board_rect.contains(hover_pos) {
+                    self.scroll_accumulator += input.smooth_scroll_delta.y;
+                    if self.scroll_accumulator >= 36.0 {
+                        self.record.go_next();
+                        self.scroll_accumulator = 0.0;
+                        self.sync_comment_edit();
+                    } else if self.scroll_accumulator <= -36.0 {
+                        self.record.go_prev();
+                        self.scroll_accumulator = 0.0;
+                        self.sync_comment_edit();
+                    }
+                }
             }
         });
         // 渲染各个面板
@@ -523,6 +531,9 @@ impl GoGui {
                                 }
                             }
                         }
+
+                        // 更新棋盘区域矩形，供滚轮事件判断
+                        self.board_rect = board_rect;
                     },
                 );
 
@@ -789,6 +800,9 @@ impl GoGui {
                         }
                     }
                 }
+
+                // 更新棋盘区域矩形，供滚轮事件判断
+                self.board_rect = board_rect;
             }
         });
     }
