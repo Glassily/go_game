@@ -85,6 +85,32 @@ impl GoRecord {
         self.current_idx
     }
 
+    /// 删除子树
+    ///
+    /// 删除指定节点及其所有后代。如果当前节点在删除的子树中，
+    /// 则将当前位置移动到被删除节点的父节点。
+    /// 注意：不能删除根节点。
+    pub fn delete_subtree(&mut self, idx: usize) -> Result<(), crate::sgf::TreeError> {
+        if Some(idx) == self.tree.get_root() {
+            return Err(crate::sgf::TreeError::InvalidRootChange);
+        }
+        let parent = self.tree.get_parent(idx);
+        self.tree.remove_subtree(idx)?;
+        if let Some(p) = parent {
+            self.current_idx = Some(p);
+            self.rebuild_board_to(self.current_idx);
+        } else {
+            self.current_idx = self.tree.get_root();
+            self.rebuild_board_to(self.current_idx);
+        }
+        Ok(())
+    }
+
+    /// 检查指定节点是否为根节点
+    pub fn is_root(&self, idx: usize) -> bool {
+        Some(idx) == self.tree.get_root()
+    }
+
     /// 设置根节点属性
     pub fn set_root_property(&mut self, prop: Property, values: Vec<String>) {
         if let Some(root) = self.tree.get_root() {

@@ -1175,3 +1175,222 @@ fn test_get_game_info_explicit_komi_overrides_rules() {
     let info = record.get_game_info();
     assert_eq!(info.komi, Some("6.5".to_string()));
 }
+
+#[test]
+fn test_delete_subtree_basic() {
+    let sgf = "(;FF[4]SZ[9];B[dd];W[ee];B[ff];W[gg])";
+    let tree = parse(sgf).unwrap();
+    let mut record = GoRecord::default();
+    record.load_sgf(tree);
+
+    record.go_first();
+    record.go_next();
+    let b_node_idx = record.current_index().unwrap();
+    assert_eq!(b_node_idx, 1);
+    record.go_next();
+    record.go_next();
+    record.go_next();
+    let last_node_idx = record.current_index().unwrap();
+    assert_eq!(last_node_idx, 4);
+
+    record.go_to(b_node_idx);
+    record
+        .delete_subtree(record.current_index().unwrap())
+        .unwrap();
+
+    assert_eq!(record.current_index().unwrap(), 0);
+    assert!(record.board.get(Point::new(3, 3)).is_none());
+}
+
+#[test]
+fn test_delete_subtree_child_branch() {
+    let sgf = "(;FF[4]SZ[9];B[dd](;W[ee];B[ff])(;W[gg];B[hh]))";
+    let tree = parse(sgf).unwrap();
+    let mut record = GoRecord::default();
+    record.load_sgf(tree);
+
+    record.go_first();
+    record.go_next();
+    let black_node_idx = record.current_index().unwrap();
+    record.go_next();
+    let first_white_idx = record.current_index().unwrap();
+
+    record.go_to(black_node_idx);
+    record.go_next();
+    record.go_next();
+    record.go_next();
+    let second_white_idx = record.current_index().unwrap();
+
+    record.go_to(second_white_idx);
+    record.delete_subtree(second_white_idx).unwrap();
+    assert_eq!(record.current_index().unwrap(), 2);
+
+    record.go_to(black_node_idx);
+    record.go_next();
+    assert_eq!(record.current_index().unwrap(), first_white_idx);
+}
+
+#[test]
+fn test_delete_subtree_current_position_in_deleted_tree() {
+    let sgf = "(;FF[4]SZ[9];B[dd];W[ee];B[ff];W[gg])";
+    let tree = parse(sgf).unwrap();
+    let mut record = GoRecord::default();
+    record.load_sgf(tree);
+
+    record.go_first();
+    record.go_next();
+    let parent_idx = record.current_index().unwrap();
+    record.go_next();
+    let child_idx = record.current_index().unwrap();
+
+    record.go_to(child_idx);
+    record.delete_subtree(parent_idx).unwrap();
+
+    assert!(record.current_index() <= Some(4.min(record.tree.nodes.len().saturating_sub(1))));
+}
+
+#[test]
+fn test_delete_subtree_updates_board_correctly() {
+    let sgf = "(;FF[4]SZ[9];B[dd];W[ee];B[ff])";
+    let tree = parse(sgf).unwrap();
+    let mut record = GoRecord::default();
+    record.load_sgf(tree);
+
+    record.go_first();
+    record.go_next();
+    let root_idx = record.current_index().unwrap();
+
+    record.delete_subtree(root_idx).unwrap();
+
+    assert_eq!(record.board.get(Point::new(3, 3)), None);
+    assert_eq!(record.board.get(Point::new(4, 4)), None);
+}
+
+#[test]
+fn test_delete_subtree_after_branching() {
+    let sgf = "(;FF[4]SZ[9];B[dd];W[ee](;B[ff];W[gg];B[hh])(;B[ii];W[jj]))";
+    let tree = parse(sgf).unwrap();
+    let mut record = GoRecord::default();
+    record.load_sgf(tree);
+
+    record.go_first();
+    record.go_next();
+    record.go_next();
+    record.go_next();
+    record.go_next();
+    let last_mainline_idx = record.current_index().unwrap();
+
+    record.go_first();
+    record.go_next();
+    record.go_next();
+    record.go_next();
+    record.go_next();
+    record.go_next();
+    let second_branch_end_idx = record.current_index().unwrap();
+
+    record.delete_subtree(second_branch_end_idx).unwrap();
+    assert_eq!(record.current_index().unwrap(), last_mainline_idx);
+}
+
+#[test]
+fn test_delete_subtree_on_variation() {
+    let sgf = "(;FF[4]SZ[9];B[dd](;W[ee];B[ff])(;W[gg];B[hh]))";
+    let tree = parse(sgf).unwrap();
+    let mut record = GoRecord::default();
+    record.load_sgf(tree);
+
+    record.go_first();
+    record.go_next();
+    let black_idx = record.current_index().unwrap();
+    record.go_next();
+    record.go_next();
+    record.go_next();
+    record.go_next();
+    let variation_node_idx = record.current_index().unwrap();
+
+    record.go_to(black_idx);
+    record.go_next();
+    record.go_next();
+    record.delete_subtree(variation_node_idx).unwrap();
+
+    record.go_to(black_idx);
+    record.go_next();
+    let children = record.tree.get_children(record.current_index().unwrap());
+    assert!(
+        children.is_empty()
+            || children.iter().all(|&c| record
+                .tree
+                .get_node(c)
+                .map(|n| !n.deleted)
+                .unwrap_or(false))
+    );
+}
+
+#[test]
+fn test_delete_subtree_export_sgf() {
+    let sgf = "(;FF[4]SZ[9];B[dd];W[ee](;B[ff];W[gg])(;B[hh];W[ii]))";
+    let tree = parse(sgf).unwrap();
+    let mut record = GoRecord::default();
+    record.load_sgf(tree);
+
+    record.delete_subtree(5).unwrap();
+
+    let exported = export(&record.tree);
+    eprintln!("Exported SGF: {}", exported);
+    assert!(!exported.contains("hh"));
+    assert!(exported.contains("dd"));
+    assert!(exported.contains("ee"));
+    assert!(exported.contains("ff"));
+    assert!(exported.contains("gg"));
+}
+
+#[test]
+fn test_delete_subtree_can_continue_mainline() {
+    let sgf = "(;FF[4]SZ[9];B[dd];W[ee];B[ff];W[gg])";
+    let tree = parse(sgf).unwrap();
+    let mut record = GoRecord::default();
+    record.load_sgf(tree);
+
+    record.go_first();
+    record.go_next();
+    let delete_idx = record.current_index().unwrap();
+    record.delete_subtree(delete_idx).unwrap();
+
+    record.go_next();
+    assert!(record.current_index().is_some());
+
+    let next_color = record.next_to_move();
+    assert_eq!(next_color, Color::Black);
+}
+
+#[test]
+fn test_delete_subtree_nonexistent_returns_error() {
+    let mut record = GoRecord::default();
+    let result = record.delete_subtree(9999);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_delete_root_returns_error() {
+    let sgf = "(;FF[4]SZ[9];B[dd];W[ee])";
+    let tree = parse(sgf).unwrap();
+    let mut record = GoRecord::default();
+    record.load_sgf(tree);
+
+    let root_idx = record.tree.get_root().unwrap();
+    let result = record.delete_subtree(root_idx);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_is_root() {
+    let mut record = GoRecord::default();
+    let root_idx = record.tree.get_root().unwrap();
+    assert!(record.is_root(root_idx));
+
+    record
+        .add_move(Move::new(Color::Black, Point::new(3, 3)))
+        .unwrap();
+    let child_idx = record.current_index().unwrap();
+    assert!(!record.is_root(child_idx));
+}

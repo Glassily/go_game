@@ -67,6 +67,16 @@ pub struct GoGui {
     context_pos: egui::Pos2,
     /// 是否显示右键菜单窗口
     show_context_window: bool,
+    /// 树面板右键菜单选中的节点索引
+    tree_context_node: Option<usize>,
+    /// 树面板右键菜单位置
+    tree_context_pos: egui::Pos2,
+    /// 是否显示树面板右键菜单
+    show_tree_context_menu: bool,
+    /// 删除确认对话框选中的节点索引
+    confirm_delete_node: Option<usize>,
+    /// 是否显示删除确认对话框
+    show_delete_confirm: bool,
     /// 游戏名称
     info_game_name: String,
     /// 黑方棋手姓名
@@ -146,6 +156,11 @@ impl GoGui {
             context_point: None,
             context_pos: egui::pos2(0.0, 0.0),
             show_context_window: false,
+            tree_context_node: None,
+            tree_context_pos: egui::pos2(0.0, 0.0),
+            show_tree_context_menu: false,
+            confirm_delete_node: None,
+            show_delete_confirm: false,
             info_game_name: String::new(),
             info_black: String::new(),
             info_black_rank: String::new(),
@@ -253,6 +268,8 @@ impl eframe::App for GoGui {
         self.error_window(ui);
         self.illegal_move_popup(ui);
         self.context_menu(ui);
+        self.tree_context_menu(ui);
+        self.delete_confirm_dialog(ui);
         self.new_game_dialog(ui);
     }
 }
@@ -749,6 +766,13 @@ impl GoGui {
                                     self.comment_edit = info.comment.clone().unwrap_or_default();
                                 }
 
+                                // 右键点击显示树面板上下文菜单
+                                if resp.secondary_clicked() {
+                                    self.tree_context_node = Some(*idx);
+                                    self.tree_context_pos = node_rect.center();
+                                    self.show_tree_context_menu = true;
+                                }
+
                                 // 绘制评论标签
                                 if let Some(c) = &info.comment {
                                     painter.text(
@@ -1214,6 +1238,113 @@ impl GoGui {
                 });
                 ui.add_space(SPACING);
             });
+    }
+
+    /// 树面板节点右键上下文菜单
+    fn tree_context_menu(&mut self, ctx: &egui::Context) {
+        if !self.show_tree_context_menu {
+            return;
+        }
+
+        let node_idx = self.tree_context_node;
+
+        egui::Window::new("🗑️ Tree Options")
+            .default_pos(self.tree_context_pos)
+            .show(ctx, |ui| {
+                ui.add_space(SPACING);
+                if let Some(idx) = node_idx {
+                    ui.label(format!("Node: {}", idx));
+                    ui.add_space(SPACING);
+                }
+                ui.horizontal(|ui| {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if let Some(idx) = node_idx {
+                            if styled_button(ui, "Go to", true).clicked() {
+                                self.record.go_to(idx);
+                                self.comment_edit = self
+                                    .record
+                                    .all_nodes()
+                                    .into_iter()
+                                    .find(|(i, _)| *i == idx)
+                                    .map(|(_, info)| info.comment.unwrap_or_default())
+                                    .unwrap_or_default();
+                                self.tree_context_node = None;
+                                self.show_tree_context_menu = false;
+                                ui.close();
+                            }
+                        }
+                        if let Some(idx) = node_idx {
+                            if !self.record.is_root(idx) {
+                                if styled_button(ui, "Delete Subtree", true).clicked() {
+                                    self.confirm_delete_node = Some(idx);
+                                    self.show_delete_confirm = true;
+                                    self.tree_context_node = None;
+                                    self.show_tree_context_menu = false;
+                                    ui.close();
+                                }
+                            }
+                        }
+                        if ui
+                            .add(
+                                egui::Button::new("Cancel")
+                                    .min_size(Vec2::new(80.0, BUTTON_HEIGHT)),
+                            )
+                            .clicked()
+                        {
+                            self.tree_context_node = None;
+                            self.show_tree_context_menu = false;
+                            ui.close();
+                        }
+                    });
+                });
+                ui.add_space(SPACING);
+            });
+    }
+
+    /// 删除确认对话框
+    fn delete_confirm_dialog(&mut self, ctx: &egui::Context) {
+        if !self.show_delete_confirm {
+            return;
+        }
+
+        let mut close_dialog = false;
+
+        dialog_window("⚠️ Confirm Delete")
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.add_space(SPACING);
+                ui.label(
+                    egui::RichText::new("Are you sure you want to delete this subtree?").size(14.0),
+                );
+                ui.label(
+                    egui::RichText::new("This action cannot be undone.")
+                        .size(12.0)
+                        .color(Color32::from_gray(140)),
+                );
+                ui.add_space(SECTION_SPACING);
+                ui.horizontal(|ui| {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if styled_button(ui, "Cancel", false).clicked() {
+                            close_dialog = true;
+                        }
+                        if styled_button(ui, "Delete", true).clicked() {
+                            if let Some(idx) = self.confirm_delete_node {
+                                if let Err(e) = self.record.delete_subtree(idx) {
+                                    self.error_message = format!("Delete failed: {}", e);
+                                    self.show_error_window = true;
+                                }
+                            }
+                            close_dialog = true;
+                        }
+                    });
+                });
+                ui.add_space(SPACING);
+            });
+
+        if close_dialog {
+            self.show_delete_confirm = false;
+            self.confirm_delete_node = None;
+        }
     }
 
     /// 新建游戏对话框
