@@ -43,6 +43,7 @@ impl Point {
     ///
     /// # 示例
     /// ```
+    /// use go_game::Point;
     /// let pt = Point { x: 3, y: 15 }; // 0-based 坐标
     /// assert_eq!(pt.to_gtp(19), "D4");
     /// ```
@@ -62,6 +63,7 @@ impl Point {
     ///
     /// # 示例
     /// ```
+    /// use go_game::Point;
     /// let pt = Point::from_gtp("D4", 19).unwrap();
     /// assert_eq!(pt.x, 3);
     /// assert_eq!(pt.y, 15);
@@ -89,6 +91,7 @@ impl Point {
     ///
     /// # 示例
     /// ```
+    /// use go_game::Point;
     /// let pt = Point { x: 3, y: 15 };
     /// assert_eq!(pt.to_sgf(), "dp");
     /// ```
@@ -103,6 +106,7 @@ impl Point {
     ///
     /// # 示例
     /// ```
+    /// use go_game::Point;
     /// let pt = Point::from_sgf("dp", 19).unwrap();
     /// assert_eq!(pt.x, 3);
     /// assert_eq!(pt.y, 15);

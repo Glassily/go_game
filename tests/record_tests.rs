@@ -1,4 +1,4 @@
-use go_game::{Color, GoRecord, Move, Point, Property, export, parse};
+use go_game::{Color, GoRecord, Move, Point, Property, default_komi, export, parse};
 
 #[test]
 fn test_record_creation_with_different_sizes() {
@@ -1032,4 +1032,178 @@ fn test_sgf_roundtrip_preserves_moves() {
     record2.go_last();
     let all_moves2 = record2.get_all_moves();
     assert_eq!(all_moves.len(), all_moves2.len());
+}
+
+#[test]
+fn test_default_komi_japanese() {
+    assert_eq!(default_komi("Japanese"), "6.5");
+    assert_eq!(default_komi("japanese"), "6.5");
+}
+
+#[test]
+fn test_default_komi_chinese() {
+    assert_eq!(default_komi("Chinese"), "7.5");
+    assert_eq!(default_komi("chinese"), "7.5");
+}
+
+#[test]
+fn test_default_komi_aga() {
+    assert_eq!(default_komi("AGA"), "7.0");
+    assert_eq!(default_komi("aga"), "7.0");
+}
+
+#[test]
+fn test_default_komi_new_zealand() {
+    assert_eq!(default_komi("New Zealand"), "6.5");
+    assert_eq!(default_komi("new zealand"), "6.5");
+}
+
+#[test]
+fn test_default_komi_unknown() {
+    assert_eq!(default_komi(""), "6.5");
+    assert_eq!(default_komi("Korean"), "6.5");
+    assert_eq!(default_komi("Random"), "6.5");
+}
+
+#[test]
+fn test_get_game_info_with_komi() {
+    let sgf = "(;FF[4]SZ[19]KM[6.5];B[pd])";
+    let tree = parse(sgf).unwrap();
+    let mut record = GoRecord::default();
+    record.load_sgf(tree);
+    let info = record.get_game_info();
+    assert_eq!(info.komi, Some("6.5".to_string()));
+}
+
+#[test]
+fn test_get_game_info_with_komi_and_rules() {
+    let sgf = "(;FF[4]SZ[19]RU[Chinese]KM[5.5];B[pd])";
+    let tree = parse(sgf).unwrap();
+    let mut record = GoRecord::default();
+    record.load_sgf(tree);
+    let info = record.get_game_info();
+    assert_eq!(info.komi, Some("5.5".to_string()));
+    assert_eq!(info.rules, Some("Chinese".to_string()));
+}
+
+#[test]
+fn test_get_game_info_real_sgf_format() {
+    let sgf = "(;EV[中国围棋规则];PB[黑方];PW[白方];RU[Chinese];KM[7.5];B[dd];W[pp])";
+    let tree = parse(sgf).unwrap();
+    let mut record = GoRecord::default();
+    record.load_sgf(tree);
+    let info = record.get_game_info();
+    assert_eq!(info.event, Some("中国围棋规则".to_string()));
+    assert_eq!(info.rules, Some("Chinese".to_string()));
+    assert_eq!(info.komi, Some("7.5".to_string()));
+}
+
+#[test]
+fn test_get_game_info_chinese_rules_no_komi_uses_default() {
+    let sgf = "(;RU[Chinese];B[dd];W[pp])";
+    let tree = parse(sgf).unwrap();
+    let mut record = GoRecord::default();
+    record.load_sgf(tree);
+    let info = record.get_game_info();
+    assert_eq!(info.rules, Some("Chinese".to_string()));
+    assert_eq!(info.komi, Some("7.5".to_string()));
+}
+
+#[test]
+fn test_get_game_info_chinese_rules_with_zero_komi() {
+    let sgf = "(;RU[Chinese];KM[0];B[dd];W[pp])";
+    let tree = parse(sgf).unwrap();
+    let mut record = GoRecord::default();
+    record.load_sgf(tree);
+    let info = record.get_game_info();
+    assert_eq!(info.rules, Some("Chinese".to_string()));
+    assert_eq!(info.komi, Some("0".to_string()));
+}
+
+#[test]
+fn test_get_game_info_with_empty_komi() {
+    let sgf = "(;RU[Chinese];KM[];B[dd])";
+    let tree = parse(sgf).unwrap();
+    let mut record = GoRecord::default();
+    record.load_sgf(tree);
+    let info = record.get_game_info();
+    assert_eq!(info.rules, Some("Chinese".to_string()));
+    assert_eq!(info.komi, Some("7.5".to_string()));
+}
+
+#[test]
+fn test_get_game_info_rules_in_second_node() {
+    let sgf = "(;SZ[19];RU[Chinese];KM[7.5];B[dd])";
+    let tree = parse(sgf).unwrap();
+    let mut record = GoRecord::default();
+    record.load_sgf(tree);
+    let info = record.get_game_info();
+    assert_eq!(info.rules, Some("Chinese".to_string()));
+    assert_eq!(info.komi, Some("7.5".to_string()));
+}
+
+#[test]
+fn test_export_import_preserves_komi_rules() {
+    let sgf = "(;SZ[19];RU[Chinese];KM[7.5];B[dd])";
+    let tree = parse(sgf).unwrap();
+    let exported = export(&tree);
+    eprintln!("Exported SGF: {}", exported);
+
+    let tree2 = parse(&exported).unwrap();
+    let mut record = GoRecord::default();
+    record.load_sgf(tree2);
+    let info = record.get_game_info();
+
+    assert_eq!(info.rules, Some("Chinese".to_string()));
+    assert_eq!(info.komi, Some("7.5".to_string()));
+}
+
+#[test]
+fn test_get_game_info_without_komi_uses_rules_japanese() {
+    let sgf = "(;FF[4]SZ[19]RU[Japanese];B[pd])";
+    let tree = parse(sgf).unwrap();
+    let mut record = GoRecord::default();
+    record.load_sgf(tree);
+    let info = record.get_game_info();
+    assert_eq!(info.komi, Some("6.5".to_string()));
+}
+
+#[test]
+fn test_get_game_info_without_komi_uses_rules_chinese() {
+    let sgf = "(;FF[4]SZ[19]RU[Chinese];B[pd])";
+    let tree = parse(sgf).unwrap();
+    let mut record = GoRecord::default();
+    record.load_sgf(tree);
+    let info = record.get_game_info();
+    assert_eq!(info.komi, Some("7.5".to_string()));
+}
+
+#[test]
+fn test_get_game_info_without_komi_uses_rules_aga() {
+    let sgf = "(;FF[4]SZ[19]RU[AGA];B[pd])";
+    let tree = parse(sgf).unwrap();
+    let mut record = GoRecord::default();
+    record.load_sgf(tree);
+    let info = record.get_game_info();
+    assert_eq!(info.komi, Some("7.0".to_string()));
+}
+
+#[test]
+fn test_get_game_info_without_komi_no_rules() {
+    let sgf = "(;FF[4]SZ[19];B[pd])";
+    let tree = parse(sgf).unwrap();
+    let mut record = GoRecord::default();
+    record.load_sgf(tree);
+    let info = record.get_game_info();
+    assert!(info.komi.is_none());
+}
+
+#[test]
+fn test_get_game_info_explicit_komi_overrides_rules() {
+    let sgf = "(;FF[4]SZ[19]RU[Chinese]KM[6.5];B[pd])";
+    let tree = parse(sgf).unwrap();
+    let mut record = GoRecord::default();
+    record.load_sgf(tree);
+    let info = record.get_game_info();
+    assert_eq!(info.komi, Some("6.5".to_string()));
 }

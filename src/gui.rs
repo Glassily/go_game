@@ -4,7 +4,7 @@ use egui::{Color32, Layout, Sense, Stroke, Vec2};
 use std::collections::HashMap;
 
 use go_game::model::{Color, Move, Point};
-use go_game::record::{GoRecord, NodeInfo};
+use go_game::record::{GoRecord, NodeInfo, default_komi};
 use go_game::sgf::{export, parse};
 use go_game::{Board, IllegalMoveError};
 
@@ -39,22 +39,8 @@ fn dialog_separator(ui: &mut egui::Ui) {
     ui.add_space(4.0);
 }
 
-/// 根据规则返回默认贴目值
-/// - Japanese: 6.5
-/// - Chinese: 7.5
-/// - AGA: 7.0
-/// - New Zealand: 6.5
-fn default_komi(rules: &str) -> &'static str {
-    match rules {
-        "Japanese" => "6.5",
-        "Chinese" => "7.5",
-        "AGA" => "7.0",
-        "New Zealand" => "6.5",
-        _ => "6.5",
-    }
-}
-
 /// 围棋 SGF 编辑器的主结构体
+///
 /// 负责管理棋局记录、界面状态和各种交互逻辑
 pub struct GoGui {
     /// 棋局记录，包含树形结构和棋盘状态

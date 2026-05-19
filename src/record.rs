@@ -674,6 +674,17 @@ fn set_info_field(node: &mut Node, prop: Property, val: &Option<String>) {
     }
 }
 
+/// 根据规则获取默认贴目值
+pub fn default_komi(rules: &str) -> &'static str {
+    match rules {
+        "Japanese" | "japanese" => "6.5",
+        "Chinese" | "chinese" => "7.5",
+        "AGA" | "aga" => "7.0",
+        "New Zealand" | "new zealand" => "6.5",
+        _ => "6.5",
+    }
+}
+
 /// 节点信息结构
 #[derive(Debug, Clone)]
 pub struct NodeInfo {
