@@ -1455,6 +1455,40 @@ fn draw_board(
         }
     }
 
+    // 坐标标签
+    if show_coords {
+        let font_id = egui::FontId::proportional((cell * 0.35).max(1.0));
+        let offset = cell * 0.15;
+        // 横坐标（A-T，跳过 I）
+        for x in 0..size {
+            let cx = drawing_rect.left() + x as f32 * cell;
+            let label = if x >= 8 {
+                ((b'A' + x as u8 + 1) as char).to_string()
+            } else {
+                ((b'A' + x as u8) as char).to_string()
+            };
+            painter.text(
+                egui::pos2(cx, drawing_rect.bottom() + offset * 2.0),
+                egui::Align2::CENTER_CENTER,
+                label,
+                font_id.clone(),
+                Color32::BLACK,
+            );
+        }
+        // 纵坐标（从上到下递增）
+        for y in 0..size {
+            let cy = drawing_rect.top() + y as f32 * cell;
+            let label = (size - y).to_string();
+            painter.text(
+                egui::pos2(drawing_rect.right() + offset, cy),
+                egui::Align2::LEFT_CENTER,
+                label,
+                font_id.clone(),
+                Color32::BLACK,
+            );
+        }
+    }
+
     // 绘制所有棋子
     for y in 0..size {
         for x in 0..size {
@@ -1541,39 +1575,6 @@ fn draw_board(
                     text_color,
                 );
             }
-        }
-    }
-
-    // 坐标标签
-    if show_coords {
-        let font_id = egui::FontId::proportional((cell * 0.35).max(1.0));
-        // 横坐标（A-T，跳过 I）
-        for x in 0..size {
-            let cx = drawing_rect.left() + x as f32 * cell;
-            let label = if x >= 8 {
-                ((b'A' + x as u8 + 1) as char).to_string()
-            } else {
-                ((b'A' + x as u8) as char).to_string()
-            };
-            painter.text(
-                egui::pos2(cx - 6.0, drawing_rect.bottom() + 6.0),
-                egui::Align2::LEFT_TOP,
-                label,
-                font_id.clone(),
-                Color32::BLACK,
-            );
-        }
-        // 纵坐标（从上到下递增）
-        for y in 0..size {
-            let cy = drawing_rect.top() + y as f32 * cell;
-            let label = (size - y).to_string();
-            painter.text(
-                egui::pos2(drawing_rect.right() + 6.0, cy - 6.0),
-                egui::Align2::LEFT_TOP,
-                label,
-                font_id.clone(),
-                Color32::BLACK,
-            );
         }
     }
 }
