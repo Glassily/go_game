@@ -304,22 +304,6 @@ impl GoGui {
         ui.menu_button("File", |ui| {
             // 新建游戏
             if ui.button("New").clicked() {
-                self.new_game_board_size = self.record.board_size();
-                if let Some(root) = self.record.tree.get_root() {
-                    if let Some(node) = self.record.tree.get_node(root) {
-                        if let Some(r) = node.get_first(go_game::Property::RU) {
-                            self.new_game_rules = r.clone();
-                        }
-                        if let Some(k) = node.get_first(go_game::Property::KM) {
-                            self.new_game_komi = k.clone();
-                        }
-                    }
-                }
-                if self.new_game_rules.is_empty() {
-                    self.new_game_rules = String::from("Japanese");
-                }
-                let dk = default_komi(&self.new_game_rules);
-                self.new_game_komi_edited = self.new_game_komi != dk;
                 self.show_new_game_dialog = true;
                 ui.close();
             }
@@ -349,13 +333,20 @@ impl GoGui {
                                     self.info_round = info.round.unwrap_or_default();
                                     self.info_place = info.place.unwrap_or_default();
                                     self.info_date = info.date.unwrap_or_default();
-                                    self.info_komi = info.komi.unwrap_or_default();
+                                    self.info_komi = info.komi.clone().unwrap_or_default();
                                     self.info_result = info.result.unwrap_or_default();
-                                    self.info_rules = info.rules.unwrap_or_default();
+                                    self.info_rules = info.rules.clone().unwrap_or_default();
                                     self.info_handicap = info.handicap.unwrap_or_default();
                                     self.info_black_team = info.black_team.unwrap_or_default();
                                     self.info_white_team = info.white_team.unwrap_or_default();
                                     self.info_user = info.user.unwrap_or_default();
+                                    // 同步到新建对话框
+                                    if let Some(ref rules) = info.rules {
+                                        self.new_game_rules = rules.clone();
+                                    }
+                                    if let Some(ref komi) = info.komi {
+                                        self.new_game_komi = komi.clone();
+                                    }
                                 }
                                 Err(e) => {
                                     self.show_error_window = true;

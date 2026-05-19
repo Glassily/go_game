@@ -498,23 +498,68 @@ impl GoRecord {
     pub fn get_game_info(&self) -> GameInfo {
         let mut info = GameInfo::default();
         if let Some(root) = self.tree.get_root() {
-            if let Some(node) = self.tree.get_node(root) {
-                info.black = node.get(&Property::PB).and_then(|v| v.first().cloned());
-                info.white = node.get(&Property::PW).and_then(|v| v.first().cloned());
-                info.black_rank = node.get(&Property::BR).and_then(|v| v.first().cloned());
-                info.white_rank = node.get(&Property::WR).and_then(|v| v.first().cloned());
-                info.event = node.get(&Property::EV).and_then(|v| v.first().cloned());
-                info.round = node.get(&Property::RO).and_then(|v| v.first().cloned());
-                info.place = node.get(&Property::PC).and_then(|v| v.first().cloned());
-                info.date = node.get(&Property::DT).and_then(|v| v.first().cloned());
-                info.komi = node.get(&Property::KM).and_then(|v| v.first().cloned());
-                info.result = node.get(&Property::RE).and_then(|v| v.first().cloned());
-                info.game_name = node.get(&Property::GN).and_then(|v| v.first().cloned());
-                info.rules = node.get(&Property::RU).and_then(|v| v.first().cloned());
-                info.handicap = node.get(&Property::HA).and_then(|v| v.first().cloned());
-                info.black_team = node.get(&Property::BT).and_then(|v| v.first().cloned());
-                info.white_team = node.get(&Property::WT).and_then(|v| v.first().cloned());
-                info.user = node.get(&Property::US).and_then(|v| v.first().cloned());
+            let mut idx = root;
+            while idx < self.tree.nodes.len() {
+                if let Some(node) = self.tree.get_node(idx) {
+                    if info.komi.is_none() {
+                        info.komi = node.get(&Property::KM).and_then(|v| v.first().cloned());
+                    }
+                    if info.rules.is_none() {
+                        info.rules = node.get(&Property::RU).and_then(|v| v.first().cloned());
+                    }
+                    if info.black.is_none() {
+                        info.black = node.get(&Property::PB).and_then(|v| v.first().cloned());
+                    }
+                    if info.white.is_none() {
+                        info.white = node.get(&Property::PW).and_then(|v| v.first().cloned());
+                    }
+                    if info.black_rank.is_none() {
+                        info.black_rank = node.get(&Property::BR).and_then(|v| v.first().cloned());
+                    }
+                    if info.white_rank.is_none() {
+                        info.white_rank = node.get(&Property::WR).and_then(|v| v.first().cloned());
+                    }
+                    if info.event.is_none() {
+                        info.event = node.get(&Property::EV).and_then(|v| v.first().cloned());
+                    }
+                    if info.round.is_none() {
+                        info.round = node.get(&Property::RO).and_then(|v| v.first().cloned());
+                    }
+                    if info.place.is_none() {
+                        info.place = node.get(&Property::PC).and_then(|v| v.first().cloned());
+                    }
+                    if info.date.is_none() {
+                        info.date = node.get(&Property::DT).and_then(|v| v.first().cloned());
+                    }
+                    if info.result.is_none() {
+                        info.result = node.get(&Property::RE).and_then(|v| v.first().cloned());
+                    }
+                    if info.game_name.is_none() {
+                        info.game_name = node.get(&Property::GN).and_then(|v| v.first().cloned());
+                    }
+                    if info.handicap.is_none() {
+                        info.handicap = node.get(&Property::HA).and_then(|v| v.first().cloned());
+                    }
+                    if info.black_team.is_none() {
+                        info.black_team = node.get(&Property::BT).and_then(|v| v.first().cloned());
+                    }
+                    if info.white_team.is_none() {
+                        info.white_team = node.get(&Property::WT).and_then(|v| v.first().cloned());
+                    }
+                    if info.user.is_none() {
+                        info.user = node.get(&Property::US).and_then(|v| v.first().cloned());
+                    }
+                }
+                if let Some(children) = self.tree.get_children(idx).first() {
+                    idx = *children;
+                } else {
+                    break;
+                }
+            }
+        }
+        if info.komi.is_none() || info.komi.as_deref() == Some("") {
+            if let Some(ref rules) = info.rules {
+                info.komi = Some(default_komi(rules).to_string());
             }
         }
         info
