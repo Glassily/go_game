@@ -1553,27 +1553,29 @@ fn draw_board(
         );
     }
 
-    // 绘制手数（仅对有效位置）
+    // 绘制手数（仅对有效位置，即棋盘上仍有棋子的位置）
     if show_move_numbers {
         for &(col, pt_opt, move_num) in moves_to_show {
             if let Some(pt) = pt_opt {
-                let cx = drawing_rect.left() + pt.x as f32 * cell;
-                let cy = drawing_rect.top() + pt.y as f32 * cell;
-                let font_size = (cell * 0.4).max(8.0);
-                let font_id = egui::FontId::proportional(font_size);
-                let text = move_num.to_string();
-                let text_color = if col == Color::Black {
-                    Color32::WHITE
-                } else {
-                    Color32::BLACK
-                };
-                painter.text(
-                    egui::pos2(cx, cy),
-                    egui::Align2::CENTER_CENTER,
-                    text,
-                    font_id,
-                    text_color,
-                );
+                if board.get(pt) == Some(col) {
+                    let cx = drawing_rect.left() + pt.x as f32 * cell;
+                    let cy = drawing_rect.top() + pt.y as f32 * cell;
+                    let font_size = (cell * 0.4).max(8.0);
+                    let font_id = egui::FontId::proportional(font_size);
+                    let text = move_num.to_string();
+                    let text_color = if col == Color::Black {
+                        Color32::WHITE
+                    } else {
+                        Color32::BLACK
+                    };
+                    painter.text(
+                        egui::pos2(cx, cy),
+                        egui::Align2::CENTER_CENTER,
+                        text,
+                        font_id,
+                        text_color,
+                    );
+                }
             }
         }
     }
