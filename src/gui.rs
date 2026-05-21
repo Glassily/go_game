@@ -129,6 +129,8 @@ pub struct GoGui {
     new_game_komi: String,
     /// 用户是否手动编辑过贴目值
     new_game_komi_edited: bool,
+    /// 新游戏的让子数
+    new_game_handicap: u8,
     /// 滚动计数器（用于滚轮每格走一步，每格约36度）
     scroll_accumulator: f32,
     /// 棋盘区域矩形（用于判断鼠标是否在棋盘内）
@@ -187,6 +189,7 @@ impl GoGui {
             new_game_rules: String::from("Japanese"),
             new_game_komi: String::from("6.5"),
             new_game_komi_edited: false,
+            new_game_handicap: 0,
             scroll_accumulator: 0.0,
             board_rect: egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(0.0, 0.0)),
             scroll_to_node: None,
@@ -1397,6 +1400,26 @@ impl GoGui {
                 ui.add_space(6.0);
                 ui.text_edit_singleline(&mut self.new_game_komi);
 
+                dialog_separator(ui);
+                section_label(ui, "Handicap");
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    let handicaps = [0u8, 2, 3, 4, 5];
+                    for &h in &handicaps {
+                        let label = if h == 0 {
+                            "None"
+                        } else {
+                            &format!("{} stones", h)
+                        };
+                        if ui.radio(self.new_game_handicap == h, label).clicked() {
+                            self.new_game_handicap = h;
+                            if h > 0 && !self.new_game_komi_edited {
+                                self.new_game_komi = "0.5".to_string();
+                            }
+                        }
+                    }
+                });
+
                 ui.add_space(SECTION_SPACING);
                 ui.horizontal(|ui| {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1404,7 +1427,11 @@ impl GoGui {
                             close_dialog = true;
                         }
                         if styled_button(ui, "Create", true).clicked() {
-                            self.record = GoRecord::new(self.new_game_board_size);
+                            let mut record = GoRecord::new(self.new_game_board_size);
+                            if self.new_game_handicap > 0 {
+                                record = record.handicap(self.new_game_handicap);
+                            }
+                            self.record = record;
                             self.record
                                 .set_root_property(go_game::Property::GM, vec!["1".to_string()]);
                             self.record
@@ -1421,6 +1448,12 @@ impl GoGui {
                                 go_game::Property::KM,
                                 vec![self.new_game_komi.clone()],
                             );
+                            if self.new_game_handicap > 0 {
+                                self.record.set_root_property(
+                                    go_game::Property::HA,
+                                    vec![self.new_game_handicap.to_string()],
+                                );
+                            }
 
                             self.info_game_name.clear();
                             self.info_black.clear();
@@ -1434,7 +1467,11 @@ impl GoGui {
                             self.info_result.clear();
                             self.info_komi = self.new_game_komi.clone();
                             self.info_rules = self.new_game_rules.clone();
-                            self.info_handicap.clear();
+                            self.info_handicap = if self.new_game_handicap > 0 {
+                                self.new_game_handicap.to_string()
+                            } else {
+                                String::new()
+                            };
                             self.info_black_team.clear();
                             self.info_white_team.clear();
                             self.info_user.clear();

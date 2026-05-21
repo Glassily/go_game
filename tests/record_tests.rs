@@ -140,6 +140,74 @@ fn test_capture_basic() {
 }
 
 #[test]
+fn test_handicap_record_creation() {
+    let record = GoRecord::new(19).handicap(2);
+    assert_eq!(record.get_handicap(), 2);
+    assert_eq!(record.board.get(Point::new(15, 3)), Some(Color::Black));
+    assert_eq!(record.board.get(Point::new(3, 15)), Some(Color::Black));
+}
+
+#[test]
+fn test_handicap_starts_with_white() {
+    let record = GoRecord::new(19).handicap(2);
+    assert_eq!(record.next_to_move(), Color::White);
+}
+
+#[test]
+fn test_handicap_cannot_place_black_first() {
+    let mut record = GoRecord::new(19).handicap(2);
+    let result = record.add_move(Move::new(Color::Black, Point::new(9, 9)));
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_handicap_white_can_play() {
+    let mut record = GoRecord::new(19).handicap(2);
+    record
+        .add_move(Move::new(Color::White, Point::new(9, 9)))
+        .unwrap();
+    assert_eq!(record.board.get(Point::new(9, 9)), Some(Color::White));
+    assert_eq!(record.next_to_move(), Color::Black);
+}
+
+#[test]
+fn test_handicap_load_sgf() {
+    let sgf_str = "(;FF[4]SZ[9]HA[2];W[ee];B[dd])";
+    let tree = parse(sgf_str).unwrap();
+
+    let mut record = GoRecord::new(9).handicap(0);
+    record.load_sgf(tree);
+
+    assert_eq!(record.get_handicap(), 2);
+    assert_eq!(record.next_to_move(), Color::White);
+}
+
+#[test]
+fn test_handicap_all_star_points() {
+    let record2 = GoRecord::new(19).handicap(2);
+    assert_eq!(record2.board.get(Point::new(15, 3)), Some(Color::Black));
+    assert_eq!(record2.board.get(Point::new(3, 15)), Some(Color::Black));
+
+    let record3 = GoRecord::new(19).handicap(3);
+    assert_eq!(record3.board.get(Point::new(15, 3)), Some(Color::Black));
+    assert_eq!(record3.board.get(Point::new(3, 15)), Some(Color::Black));
+    assert_eq!(record3.board.get(Point::new(3, 3)), Some(Color::Black));
+
+    let record4 = GoRecord::new(19).handicap(4);
+    assert_eq!(record4.board.get(Point::new(15, 3)), Some(Color::Black));
+    assert_eq!(record4.board.get(Point::new(3, 15)), Some(Color::Black));
+    assert_eq!(record4.board.get(Point::new(3, 3)), Some(Color::Black));
+    assert_eq!(record4.board.get(Point::new(15, 15)), Some(Color::Black));
+
+    let record5 = GoRecord::new(19).handicap(5);
+    assert_eq!(record5.board.get(Point::new(15, 3)), Some(Color::Black));
+    assert_eq!(record5.board.get(Point::new(3, 15)), Some(Color::Black));
+    assert_eq!(record5.board.get(Point::new(3, 3)), Some(Color::Black));
+    assert_eq!(record5.board.get(Point::new(15, 15)), Some(Color::Black));
+    assert_eq!(record5.board.get(Point::new(9, 9)), Some(Color::Black));
+}
+
+#[test]
 fn test_ko_rule() {
     let mut record = GoRecord::new(9);
 
