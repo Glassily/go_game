@@ -93,15 +93,24 @@ impl GoRecord {
     fn set_handicap(&mut self, handicap: u8) {
         self.handicap = handicap;
         let size = self.board.size;
-        if handicap > 0 {
+        if handicap > 1 {
+            let star_points = Self::get_handicap_points(handicap, size);
             self.board = Self::setup_board(size, handicap);
             self.set_root_property(Property::HA, vec![handicap.to_string()]);
+            let ab_values: Vec<String> = star_points
+                .iter()
+                .filter(|pt| pt.is_valid(size))
+                .map(|pt| pt.to_sgf())
+                .collect();
+            self.set_root_property(Property::AB, ab_values);
             self.set_root_property(Property::KM, vec!["0.5".to_string()]);
         } else {
             self.board = Board::new(size);
+            self.handicap = 0;
             if let Some(root) = self.tree.get_root() {
                 if let Some(node) = self.tree.get_node_mut(root) {
                     node.data.remove(&Property::HA);
+                    node.data.remove(&Property::AB);
                 }
             }
         }
@@ -333,7 +342,11 @@ impl GoRecord {
     /// 重置棋盘状态，然后重放从根到目标节点的着法
     pub fn rebuild_board_to(&mut self, idx: Option<usize>) {
         let size = self.board.size;
-        self.board = Board::new(size);
+        if self.handicap > 1 {
+            self.board = Self::setup_board(size, self.handicap);
+        } else {
+            self.board = Board::new(size);
+        }
         self.black_captures = 0;
         self.white_captures = 0;
         self.ko_point = None;
@@ -816,8 +829,25 @@ impl GoRecord {
                     .and_then(|s| s.parse::<u8>().ok())
                     .unwrap_or(0);
 
-                self.board = Self::setup_board(size, handicap);
+                self.board = Board::new(size);
                 self.handicap = handicap;
+
+                if let Some(ab_values) = node.get(&Property::AB) {
+                    for sgf_coord in ab_values {
+                        if let Some(pt) = Point::from_sgf(sgf_coord, size) {
+                            if pt.is_valid(size) {
+                                self.board.set(pt, Color::Black);
+                            }
+                        }
+                    }
+                } else if handicap > 1 {
+                    let star_points = Self::get_handicap_points(handicap, size);
+                    for pt in star_points {
+                        if pt.is_valid(size) {
+                            self.board.set(pt, Color::Black);
+                        }
+                    }
+                }
             }
         }
         self.rebuild_board_to(self.current_idx);

@@ -171,15 +171,25 @@ fn test_handicap_white_can_play() {
 }
 
 #[test]
-fn test_handicap_load_sgf() {
-    let sgf_str = "(;FF[4]SZ[9]HA[2];W[ee];B[dd])";
+fn test_handicap_load_sgf_with_ab() {
+    let sgf_str = "(;FF[4]SZ[9]HA[2]KM[0.5]AB[cg][gg];W[ee];B[dd])";
     let tree = parse(sgf_str).unwrap();
 
-    let mut record = GoRecord::new(9).handicap(0);
+    let mut record = GoRecord::new(9);
     record.load_sgf(tree);
 
     assert_eq!(record.get_handicap(), 2);
     assert_eq!(record.next_to_move(), Color::White);
+    assert_eq!(record.board.get(Point::new(6, 2)), Some(Color::Black));
+    assert_eq!(record.board.get(Point::new(2, 6)), Some(Color::Black));
+}
+
+#[test]
+fn test_handicap_export_sgf() {
+    let record = GoRecord::new(19).handicap(2);
+    let sgf = export(&record.tree);
+    assert!(sgf.contains("HA[2]"));
+    assert!(sgf.contains("AB["));
 }
 
 #[test]
